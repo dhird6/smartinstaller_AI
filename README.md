@@ -1,18 +1,22 @@
 # SmartInstaller AI
 
-An autonomous, fully local Ollama installation troubleshooting system powered by Retrieval-Augmented Generation (RAG). It reads error logs, retrieves the most relevant fix from a local knowledge base, and returns step-by-step repair instructions — all without any cloud API calls.
+An autonomous, fully local installation troubleshooting system powered by Retrieval-Augmented Generation (RAG). It reads error logs, retrieves the most relevant fix from a structured knowledge base, and returns step-by-step repair instructions — all without any cloud API calls.
+
+Two independent RAG pipelines are included:
+- **`rag.py`** — Ollama-specific installation failures
+- **`installer_rag.py`** — Generic Windows software installer failures (any application)
 
 ## How It Works
 
 ```
-Error Log  →  Log Cleaner  →  ChromaDB Retriever  →  Phi-3 (local LLM)  →  Fix Instructions
-                               (nomic-embed-text)
+Failure Log  →  Log Cleaner  →  ChromaDB Retriever  →  Phi-3 (local LLM)  →  Diagnosis Report
+                                 (nomic-embed-text)
 ```
 
-1. **Log cleaning** — filters raw log output to only error/critical/failed lines
-2. **Embedding** — `nomic-embed-text` converts each knowledge base document into vectors stored in ChromaDB
-3. **Retrieval** — the top 2 most semantically similar error docs are fetched
-4. **Generation** — `phi3:mini` reads the retrieved docs and produces numbered fix steps
+1. **Log cleaning** — filters raw output to error/critical/failed/timeout lines only
+2. **Embedding** — `nomic-embed-text` converts each KB document into vectors stored in ChromaDB
+3. **Retrieval** — top 2 most semantically similar failure docs are fetched
+4. **Generation** — `phi3:mini` reads the retrieved docs and outputs a structured diagnosis
 
 ## Models Used
 
@@ -27,19 +31,38 @@ Both run inside Ollama — no internet required after initial setup.
 
 ```
 smartinstaller_AI/
-├── rag.py              # Main RAG pipeline
-└── rag_docs/           # Knowledge base (one file per error type)
-    ├── antivirus_block.md
-    ├── connection_refused.md
-    ├── cuda_failure.md
-    ├── disk_full.md
-    ├── gpu_detection.md
-    ├── missing_exe.md
-    ├── model_download.md
-    ├── path_error.md
-    ├── port_conflict.md
-    ├── proxy_issue.md
-    └── server_timeout.md
+├── rag.py                      # RAG pipeline: Ollama installation failures
+├── installer_rag.py            # RAG pipeline: Generic installer failures
+│
+├── rag_docs/                   # Knowledge base: Ollama-specific errors
+│   ├── antivirus_block.md
+│   ├── connection_refused.md
+│   ├── cuda_failure.md
+│   ├── disk_full.md
+│   ├── gpu_detection.md
+│   ├── missing_exe.md
+│   ├── model_download.md
+│   ├── path_error.md
+│   ├── port_conflict.md
+│   ├── proxy_issue.md
+│   └── server_timeout.md
+│
+└── rag/                        # Knowledge base: Generic installer errors
+    ├── gui_install_incomplete.md
+    ├── install_timeout.md
+    ├── install_cancelled.md
+    ├── install_crash.md
+    ├── network_failure.md
+    ├── permission_denied.md
+    ├── path_failure.md
+    ├── antivirus_interference.md
+    ├── component_missing.md
+    ├── process_tracking_failure.md
+    ├── log_collection_failure.md
+    ├── application_not_detected.md
+    ├── package_download_failure.md
+    ├── registry_entry_missing.md
+    └── disk_space_failure.md
 ```
 
 ## Setup
@@ -58,53 +81,58 @@ ollama pull nomic-embed-text
 **3. Install Python dependencies**
 
 ```powershell
-pip install langchain langchain-community langchain-chroma chromadb
+pip install langchain langchain-ollama langchain-chroma chromadb
 ```
 
 **4. Run**
 
 ```powershell
+# For Ollama installation failures
 python rag.py
+
+# For generic Windows installer failures
+python installer_rag.py
 ```
 
-## Usage
+## RAG Pipelines
 
-By default `rag.py` runs against a mock error log. To diagnose a real failure, replace `mock_error_log` in [rag.py](rag.py) with the contents of your Ollama log file:
+### `rag.py` — Ollama Troubleshooter
 
-```
-%LOCALAPPDATA%\Ollama\server.log
-```
-
-Example:
+Diagnoses failures during Ollama installation and startup on Windows. Pass in your Ollama server log:
 
 ```python
 log_path = Path(os.environ["LOCALAPPDATA"]) / "Ollama" / "server.log"
 mock_error_log = log_path.read_text(encoding="utf-8", errors="ignore")
 ```
 
-## Extending the Knowledge Base
+**Output format:** numbered fix steps referencing the official Ollama docs.
 
-To add a new error type, create a new `.md` file in `rag_docs/` following this structure:
+---
 
-```markdown
-# Error: <title>
+### `installer_rag.py` — Generic Installer Troubleshooter
 
-## Symptoms
-- <what the user sees>
+Diagnoses failures from any Windows software installer monitored by Smart Installer AI. Accepts structured failure logs with fields like `installationOutcome`, `error.code`, `exitCode`.
 
-## Root Causes
-- <why it happens>
-
-## Diagnosis
-- <how to investigate>
-
-## Resolution
-- <step-by-step fix>
+**Output format (structured):**
+```
+Root Cause:           <one sentence>
+Confidence:           High | Medium | Low
+Evidence:             <what in the log matched>
+Recommended Fixes:    1. ... 2. ... 3. ...
+Verification Commands: - <command>
+Escalation:           <when and to whom>
 ```
 
-No code changes needed — `rag.py` automatically loads all `.md` files from `rag_docs/` on startup.
+**Confidence scoring:**
+| Level | Condition |
+|---|---|
+| High | Exact error code or signature match |
+| Medium | Similar symptoms without exact codes |
+| Low | Generic installation failure, insufficient logs |
 
 ## Errors Covered
+
+### Ollama (`rag_docs/`)
 
 | File | Error |
 |---|---|
@@ -119,3 +147,49 @@ No code changes needed — `rag.py` automatically loads all `.md` files from `ra
 | `model_download.md` | Model download interrupted |
 | `disk_full.md` | No space left on device |
 | `port_conflict.md` | Port 11434 already in use |
+
+### Generic Installer (`rag/`)
+
+| File | Error Code | Trigger |
+|---|---|---|
+| `gui_install_incomplete.md` | `GUI_INSTALL_INCOMPLETE` | exitCode=0, app not installed |
+| `install_timeout.md` | `INSTALL_TIMEOUT` | installer.timedOut=true |
+| `install_cancelled.md` | `INSTALL_CANCELLED` | User cancelled wizard |
+| `install_crash.md` | `INSTALL_CRASH` | Crash report detected |
+| `network_failure.md` | `NETWORK_FAILURE` | Download failed / TLS error |
+| `permission_denied.md` | `PERMISSION_DENIED` | Access denied |
+| `path_failure.md` | `PATH_CONFIGURATION_FAILURE` | Command not recognized after install |
+| `antivirus_interference.md` | `ANTIVIRUS_INTERFERENCE` | Executable quarantined |
+| `component_missing.md` | `COMPONENT_MISSING` | Required DLL / package missing |
+| `process_tracking_failure.md` | `PROCESS_TRACKING_FAILURE` | COLLECTOR_ERROR |
+| `log_collection_failure.md` | `LOG_COLLECTION_FAILURE` | Log files missing |
+| `application_not_detected.md` | `APPLICATION_NOT_DETECTED` | exitCode=0, installationCompleted=false |
+| `package_download_failure.md` | `PACKAGE_DOWNLOAD_FAILURE` | Repository unavailable |
+| `registry_entry_missing.md` | `REGISTRY_ENTRY_MISSING` | Registry key absent |
+| `disk_space_failure.md` | `DISK_SPACE_FAILURE` | No space left on device |
+
+## Extending the Knowledge Base
+
+Add a new `.md` file to `rag_docs/` (Ollama) or `rag/` (generic installer) using this template:
+
+```markdown
+# Category: <ERROR_CODE>
+
+## Error Signature
+- <exact log string or field value>
+
+## Meaning
+<one sentence explanation>
+
+## Common Causes
+- <cause 1>
+
+## Recommended Actions
+- <fix 1>
+
+## Confidence Scoring
+- High: <exact match condition>
+- Medium: <partial match condition>
+```
+
+No code changes needed — both pipelines auto-load all `.md` files from their respective folders on startup.

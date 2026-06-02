@@ -1,112 +1,70 @@
-# SmartInstall AI — Installation Agent
+# SmartInstall AI
 
-Automated installer intake, one-command monitored installation, failure detection, and RAG-ready JSON evidence reports.
+Automated installer execution + failure evidence collection + local SLM diagnosis.
 
-## User workflow (3 steps)
+## End-to-end workflow
 
-1. **Copy** an installer into `installers/`
-2. **Run** one command
-3. **Open** the report in `reports/`
+1. Put installer in `installers/`
+2. Run monitored install (`python app.py run --installer <name>.exe`)
+3. Open generated report in `reports/`
+4. Run SLM diagnosis using that JSON report (`python rag.py --report <report.json>`)
+
+```text
+Installer -> Monitor -> smartinstall_report.json -> RAG retrieval -> Phi-3 fix steps
+```
+
+## Core commands
 
 ```powershell
 cd smartinstaller_AI
 .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 pip install -e .
 
-# Copy your installer, e.g. npp.8.9.6.2.Installer.x64.exe → installers\
+# run installer monitoring
+python app.py run --installer mingw-get-setup.exe
 
-python app.py run
-# or: smartinstall run
+# use report JSON as SLM input
+python rag.py --report "reports\mingwgetsetup_failure_20260602_<id>.json"
 ```
 
-No manual paths, session setup, or separate log collection commands required.
+## SmartInstall output
 
-## Project layout
+The canonical run artifact is one JSON report in `reports/`:
 
-```text
-smartinstaller_AI/
-├── app.py                    ← python app.py run
-├── installers/               ← drop .exe / .msi here
-├── reports/                  ← published JSON reports
-├── logs/                     ← application.log (agent)
-├── sessions/                 ← per-run artifacts + session summaries
-├── config/smartinstall.config.json
-└── src/smartinstall/
-```
+- `status`: installer metadata + final outcome
+- `errors[]`: normalized errors from streams, event log, installer logs, child exits, crash signals
+- `evidence`: event logs, installer log files, process tree, crash reports, MSI diagnostics
 
-## CLI commands
+For GUI installers, the agent waits `guiPostInstallGraceSeconds` after installer exit to capture delayed failures.
 
-| Command | Description |
-|---------|-------------|
-| `smartinstall run` | Discover newest installer in `installers/`, run full workflow |
-| `smartinstall run --installer npp.8.9.6.2.Installer.x64.exe` | Run a specific package |
-| `smartinstall run-all` | Run every installer in `installers/` (oldest → newest) |
-| `smartinstall install C:\path\setup.exe` | Explicit path (bypasses repository) |
-| `smartinstall recover` | Mark interrupted sessions `Incomplete` |
-| `smartinstall demo` | Foundation demo (no installer launch) |
+## Local SLM/RAG
 
-### Options for `run` / `run-all`
+`rag.py` accepts:
 
-| Flag | Purpose |
-|------|---------|
-| `--installer NAME` | Select installer file (default: newest in `installers/`) |
-| `--product-name` | Application label in reports |
-| `--tag` | Correlation tag (e.g. ticket ID) |
-| `--args "/S"` | Silent install arguments |
-| `--timeout 3600` | Max seconds to wait |
-| `--config path` | Override config file |
+- `--report <path>`: reads SmartInstall JSON report (recommended)
+- `--text "<raw error text>"`: fallback manual input
+- `--docs-path <path>`: alternate RAG knowledge-base folder
 
-## Automated workflow
-
-```text
-installers/  →  smartinstall run  →  Session  →  Launch  →  Monitor
-    →  Detect failure  →  Collect evidence  →  JSON report  →  reports/
-```
-
-## Output artifacts
-
-| Location | Content |
-|----------|---------|
-| `reports/mingwgetsetup_failure_20260601_<id>.json` | **Single canonical report** (`status` + `errors` + `evidence`) |
-| `sessions/<uuid>/` | Captured streams, `collected_logs/`, internal `session.json` |
-| `logs/application.log` | Agent structured log |
-
-### What gets captured (EXE / GUI installers)
-
-| Source | When | Stored in report |
-|--------|------|------------------|
-| stdout / stderr | During install | `status.logFiles`, stream-derived `errors[]` |
-| Windows Event Log (Application, System, Setup) | Live + post-install | `evidence.eventLogs`, `errors[]` |
-| Discovered `.log` / `.txt` under TEMP, APPDATA, etc. | After install (session window) | `evidence.installerLogFiles`, `errors[]` |
-| Child processes (downloaders, helpers) | During install | `evidence.childProcesses`, non-zero exit → `errors[]` |
-| WER crash dumps | Post-install | `evidence.crashReports` |
-| GUI with exit 0 and no evidence | Heuristic | `GUI_INSTALL_INCOMPLETE` in `errors[]` |
-
-For GUI installers (no `/S`), the agent waits `guiPostInstallGraceSeconds` (default 20s) after the main process exits so late errors (e.g. MinGW download failure dialogs) can land in logs and the Event Log.
-
-Config: `guiPostInstallGraceSeconds`, `maxInstallerLogFiles`, `installerLogSearchDepth` in `config/smartinstall.config.json`.
+Knowledge docs are loaded from `rag_docs/*.md`, embedded with `nomic-embed-text`, and resolved by `phi3:mini`.
 
 ## Requirements
 
 - Python 3.11+
 - Windows (installer execution + Event Log/WER)
-- Run PowerShell **as Administrator** for best Event Log coverage
+- Ollama with:
+  - `phi3:mini`
+  - `nomic-embed-text`
+
+Pull models:
+
+```powershell
+ollama pull phi3:mini
+ollama pull nomic-embed-text
+```
 
 ## Development
 
 ```powershell
-pip install -r requirements.txt
-pip install -e .
 pytest
 ```
-
-## Exit codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Install failed |
-| 2 | Crash detected |
-| 3 | Agent error |
-| 4 | No installer / invalid input |
-| 5 | Insufficient privileges |

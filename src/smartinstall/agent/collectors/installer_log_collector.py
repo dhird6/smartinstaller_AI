@@ -87,8 +87,14 @@ class InstallerLogCollector:
                 _find_candidate_logs(root, start, end, self._max_depth, installer_stem)
             )
 
-        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        candidates = candidates[: self._max_files]
+        stable_candidates: list[tuple[float, Path]] = []
+        for candidate in candidates:
+            try:
+                stable_candidates.append((candidate.stat().st_mtime, candidate))
+            except OSError:
+                continue
+        stable_candidates.sort(key=lambda item: item[0], reverse=True)
+        candidates = [item[1] for item in stable_candidates[: self._max_files]]
 
         collected_dir = session_directory / "collected_logs"
         collected_dir.mkdir(parents=True, exist_ok=True)

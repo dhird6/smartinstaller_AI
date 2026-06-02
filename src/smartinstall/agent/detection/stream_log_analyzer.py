@@ -57,9 +57,10 @@ def _scan_file(path: Path | None, source: str, failure_timestamp: str) -> list[R
         if len(stripped) < 4:
             continue
 
-        category, code = _classify_line(stripped)
-        if category is None:
+        classified = _classify_line(stripped)
+        if classified is None:
             continue
+        category, code = classified
 
         key = f"{category}:{stripped[:120]}"
         if key in seen:

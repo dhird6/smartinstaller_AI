@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "1.0",
+  "reportGeneratedAt": "2026-06-01T09:30:00.000Z",
+  "status": {
+    "sessionId": "36c500f0-2a55-4ca1-8211-25d8eef68a27",
+    "application": "mingw-get-setup",
+    "installationOutcome": "Failure",
+    "workflowStatus": "FAILED",
+    "installationCompleted": false,
+    "failureReason": "GUI installer process ended with exit code 0 but no console errors were captured...",
+    "sessionStatus": "Completed",
+    "startTimestamp": "2026-06-01T09:27:00.000Z",
+    "endTimestamp": "2026-06-01T09:28:10.000Z",
+    "durationSeconds": 70,
+    "installer": {
+      "installerName": "mingw-get-setup.exe",
+      "installerPath": "D:\\...\\installers\\mingw-get-setup.exe",
+      "installerType": "EXE",
+      "processId": 30800,
+      "parentProcessId": 21736,
+      "exitCode": 0,
+      "exitCodeDescription": "Success",
+      "executionDurationSeconds": 69.5,
+      "timedOut": false
+    },
+    "artifactDirectory": "D:\\...\\sessions\\36c500f0-2a55-4ca1-8211-25d8eef68a27",
+    "logFiles": {
+      "stdout": "D:\\...\\sessions\\36c500f0-...\\stdout.log",
+      "stderr": "D:\\...\\sessions\\36c500f0-...\\stderr.log",
+      "msiVerbose": null
+    }
+  },
+  "errors": [
+    {
+      "category": "gui",
+      "code": "GUI_INSTALL_INCOMPLETE",
+      "message": "GUI installer process ended with exit code 0 but no console errors were captured. Installation is likely incomplete — common causes: network disabled during download, user cancelled the wizard, or required components were not installed.",
+      "source": "FailureDetector",
+      "timestamp": "2026-06-01T09:28:10.000Z",
+      "severity": "error"
+    },
+    {
+      "category": "network",
+      "code": "NETWORK_ERROR",
+      "message": "failed to download: connection timed out",
+      "source": "stderr:line42",
+      "timestamp": "2026-06-01T09:28:10.000Z",
+      "severity": "error",
+      "rawExcerpt": "failed to download: connection timed out"
+    }
+  ],
+  "evidence": {
+    "eventLogs": [],
+    "eventLogCount": 0,
+    "msiDiagnostics": [],
+    "crashReports": [],
+    "crashDetected": false,
+    "processSnapshot": []
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "sessionId": "a1b2c3d4-e5f6-4789-a012-3456789abcde",
+  "application": "Notepad++",
+  "status": "FAILED",
+  "failureReason": "Exit code 1603: Fatal error during installation",
+  "reportGeneratedAt": "2026-06-01T15:45:22.100Z",
+  "installerDetails": {
+    "installerName": "npp.8.6.7.Installer.x64.exe",
+    "installerPath": "C:\\Downloads\\npp.8.6.7.Installer.x64.exe",
+    "installerType": "EXE",
+    "processId": 18452,
+    "parentProcessId": 11200,
+    "exitCode": 1603,
+    "exitCodeDescription": "Fatal error during installation",
+    "executionDurationSeconds": 47.3,
+    "commandLine": "C:\\Downloads\\npp.8.6.7.Installer.x64.exe /S",
+    "stdoutPath": "C:\\ProgramData\\SmartInstallAI\\sessions\\a1b2c3d4-e5f6-4789-a012-3456789abcde\\stdout.log",
+    "stderrPath": "C:\\ProgramData\\SmartInstallAI\\sessions\\a1b2c3d4-e5f6-4789-a012-3456789abcde\\stderr.log",
+    "timedOut": false
+  },
+  "errorDetails": {
+    "primaryErrorMessage": "Fatal error during installation",
+    "errorCode": "1603",
+    "errorSource": "InstallerProcess",
+    "failureTimestamp": "2026-06-01T15:44:35.000Z",
+    "detectionSignals": ["NON_ZERO_EXIT_CODE"]
+  },
+  "eventLogs": [
+    {
+      "eventId": 11707,
+      "source": "MsiInstaller",
+      "level": "Error",
+      "message": "Installation operation failed.",
+      "timestamp": "2026-06-01T15:44:34.500Z",
+      "logName": "Application",
+      "recordId": 120455
+    }
+  ],
+  "msiDiagnostics": [
+    {
+      "lineNumber": 8421,
+      "rawText": "MSI (s) (CC:44) Error 1402: Could not open key",
+      "errorCode": "1402",
+      "actionName": null,
+      "isFatal": false,
+      "isWarning": false,
+      "isRollback": false
+    },
+    {
+      "lineNumber": 9102,
+      "rawText": "Return value 3.",
+      "errorCode": null,
+      "actionName": null,
+      "isFatal": true,
+      "isWarning": false,
+      "isRollback": false
+    }
+  ],
+  "crashReports": [],
+  "processSnapshot": [
+    {
+      "processId": 18452,
+      "parentProcessId": 11200,
+      "processName": "npp.8.6.7.Installer.x64.exe",
+      "executablePath": "C:\\Downloads\\npp.8.6.7.Installer.x64.exe",
+      "cpuPercent": 12.5,
+      "memoryMb": 88.2,
+      "isInstallerRoot": true
+    }
+  ],
+  "collectionErrors": []
+}

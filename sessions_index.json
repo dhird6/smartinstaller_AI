@@ -1,0 +1,10 @@
+[
+  {
+    "sessionId": "9e464e7a-8e04-407c-961c-820dfe06f0b7",
+    "startTimestamp": "2026-06-01T09:50:05.395Z",
+    "endTimestamp": "2026-06-01T09:52:07.721Z",
+    "outcome": "Failure",
+    "diagnosticScore": 10,
+    "reportPath": "D:\\Autodesk Technology Project\\Smart Installer AI\\smartinstaller_AI\\sessions\\9e464e7a-8e04-407c-961c-820dfe06f0b7\\smartinstall_report.json"
+  }
+]

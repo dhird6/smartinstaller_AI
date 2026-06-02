@@ -8,6 +8,7 @@ from pathlib import Path
 
 from smartinstall.agent.di.container import ServiceContainer, build_container
 from smartinstall.agent.orchestration.automated_run_orchestrator import AutomatedRunResult, BatchRunResult
+from smartinstall.agent.slm.auto_diagnosis import run_slm_for_report
 from smartinstall.core.models.requests import StartSessionRequest
 from smartinstall.core.models.unified_report import UnifiedInstallationReport
 
@@ -129,6 +130,7 @@ def _run_automated(container: ServiceContainer, args: argparse.Namespace) -> int
 
     value = result.value
     _log_run_complete(container, value)
+    _run_slm_diagnosis(container, value.report_path)
     return _map_workflow_status_to_exit(value.workflow_status)
 
 
@@ -151,6 +153,7 @@ def _run_all_automated(container: ServiceContainer, args: argparse.Namespace) ->
     )
     for run_item in batch.runs:
         _log_run_complete(container, run_item)
+        _run_slm_diagnosis(container, run_item.report_path)
 
     return 0 if batch.failures == 0 else 1
 
@@ -179,6 +182,7 @@ def _run_explicit_install(container: ServiceContainer, args: argparse.Namespace)
         application_name=args.product_name or Path(args.installer_path).stem,
     )
     _print_report_summary(report_path, unified)
+    _run_slm_diagnosis(container, report_path)
     return _map_workflow_status_to_exit(unified.status.installation_outcome)
 
 
@@ -206,6 +210,27 @@ def _print_report_summary(report_path: Path, report: UnifiedInstallationReport) 
         top = report.errors[0]
         print(f"  [{top.category}] {top.message[:200]}")
     print(f"Logs:       {report.status.artifact_directory}")
+
+
+def _run_slm_diagnosis(container: ServiceContainer, report_path: Path) -> None:
+    container.logger.info("slm_autorun_started", report=str(report_path))
+    result = run_slm_for_report(report_path)
+    if not result.success:
+        container.logger.warning(
+            "slm_autorun_failed",
+            report=str(report_path),
+            error=result.error,
+            return_code=result.return_code,
+        )
+        return
+
+    container.logger.info(
+        "slm_autorun_complete",
+        report=str(report_path),
+        return_code=result.return_code,
+    )
+    print("\nSLM Diagnosis:")
+    print(result.output or "(no output)")
 
 
 def _run_foundation_demo(container: ServiceContainer, args: argparse.Namespace) -> int:

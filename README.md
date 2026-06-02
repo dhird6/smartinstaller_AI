@@ -6,8 +6,8 @@ Automated installer execution + failure evidence collection + local SLM diagnosi
 
 1. Put installer in `installers/`
 2. Run monitored install (`python app.py run --installer <name>.exe`)
-3. Open generated report in `reports/`
-4. Run SLM diagnosis using that JSON report (`python rag.py --report <report.json>`)
+3. SmartInstall auto-passes the generated JSON report to SLM
+4. Review diagnosis output in console (and report in `reports/`)
 
 ```text
 Installer -> Monitor -> smartinstall_report.json -> RAG retrieval -> Phi-3 fix steps
@@ -21,11 +21,8 @@ cd smartinstaller_AI
 pip install -r requirements.txt
 pip install -e .
 
-# run installer monitoring
+# run installer monitoring + automatic SLM diagnosis
 python app.py run --installer mingw-get-setup.exe
-
-# use report JSON as SLM input
-python rag.py --report "reports\mingwgetsetup_failure_20260602_<id>.json"
 ```
 
 ## SmartInstall output
@@ -45,6 +42,8 @@ For GUI installers, the agent waits `guiPostInstallGraceSeconds` after installer
 - `--report <path>`: reads SmartInstall JSON report (recommended)
 - `--text "<raw error text>"`: fallback manual input
 - `--docs-path <path>`: alternate RAG knowledge-base folder
+
+Note: during `python app.py run` and `python app.py run-all`, SmartInstall now automatically calls `rag.py --report <generated_report_path>` after each run.
 
 Knowledge docs are loaded from `rag_docs/*.md`, embedded with `nomic-embed-text`, and resolved by `phi3:mini`.
 

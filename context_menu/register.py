@@ -13,36 +13,45 @@ LAUNCHER = Path(__file__).resolve().parent / "launcher.pyw"
 PYTHONW = Path(sys.executable).parent / "pythonw.exe"
 
 # Registry paths for EXE and MSI file types
+# Use HKCU\SOFTWARE\Classes — works without Administrator privileges
+# Windows merges HKCU\SOFTWARE\Classes with HKCR at runtime
+HIVE = winreg.HKEY_CURRENT_USER
+HIVE_PREFIX = r"SOFTWARE\Classes"
+
 TARGETS = [
     r"exefile\shell\SmartInstallAI",       # right-click on .exe
     r"Msi.Package\shell\SmartInstallAI",   # right-click on .msi
 ]
 
 COMMAND = f'"{PYTHONW}" "{LAUNCHER}" "%1"'
-ICON = str(LAUNCHER.parent.parent / "src" / "smartinstall" / "__init__.py")  # fallback
+
+
+def _full(key: str) -> str:
+    return HIVE_PREFIX + "\\" + key
 
 
 def register() -> None:
     for base_key in TARGETS:
-        # Create the menu entry key
-        with winreg.CreateKeyEx(winreg.HKEY_CLASSES_ROOT, base_key) as k:
+        full = _full(base_key)
+
+        with winreg.CreateKeyEx(HIVE, full) as k:
             winreg.SetValueEx(k, "", 0, winreg.REG_SZ, MENU_LABEL)
 
-        # Create the command subkey
-        with winreg.CreateKeyEx(winreg.HKEY_CLASSES_ROOT, base_key + r"\command") as k:
+        with winreg.CreateKeyEx(HIVE, full + r"\command") as k:
             winreg.SetValueEx(k, "", 0, winreg.REG_SZ, COMMAND)
 
-        print(f"Registered: HKCR\\{base_key}")
+        print(f"Registered: HKCU\\{full}")
 
-    print("\nDone. Right-click any .exe or .msi to see 'Monitor with SmartInstaller AI'.")
+    print("\nDone. Right-click any .exe or .msi > 'Show more options' > 'Monitor with SmartInstaller AI'.")
 
 
 def unregister() -> None:
     for base_key in TARGETS:
+        full = _full(base_key)
         for sub in [r"\command", ""]:
             try:
-                winreg.DeleteKey(winreg.HKEY_CLASSES_ROOT, base_key + sub)
-                print(f"Removed: HKCR\\{base_key}{sub}")
+                winreg.DeleteKey(HIVE, full + sub)
+                print(f"Removed: HKCU\\{full}{sub}")
             except FileNotFoundError:
                 pass
     print("\nDone. Context menu entry removed.")

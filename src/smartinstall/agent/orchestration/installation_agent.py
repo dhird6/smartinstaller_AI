@@ -30,6 +30,16 @@ from smartinstall.core.models.requests import StartSessionRequest
 from smartinstall.core.models.unified_report import UNIFIED_REPORT_FILENAME
 from smartinstall.core.results.api_error import ApiError
 from smartinstall.core.results.result import Result
+from smartinstall.rag.rag_pipeline import RagPipeline
+
+_rag_pipeline: RagPipeline | None = None
+
+
+def _get_rag_pipeline() -> RagPipeline:
+    global _rag_pipeline
+    if _rag_pipeline is None:
+        _rag_pipeline = RagPipeline()
+    return _rag_pipeline
 
 logger = structlog.get_logger(__name__)
 
@@ -194,6 +204,26 @@ class InstallationAgent:
                 unified,
                 session_dir / UNIFIED_REPORT_FILENAME,
             )
+
+            # Automatically diagnose failures with the local RAG pipeline (Phi-3 + ChromaDB)
+            if detection.status != "SUCCESS":
+                try:
+                    import json as _json
+                    rag = _get_rag_pipeline()
+                    report_dict = _json.loads(report_path.read_text(encoding="utf-8"))
+                    diagnosis = rag.diagnose(report_dict, session_id=session.session_id)
+                    diag_path = session_dir / "rag_diagnosis.json"
+                    diag_path.write_text(
+                        _json.dumps(diagnosis.to_dict(), indent=2), encoding="utf-8"
+                    )
+                    logger.info(
+                        "rag_diagnosis_written",
+                        path=str(diag_path),
+                        confidence=diagnosis.confidence,
+                        root_cause=diagnosis.root_cause,
+                    )
+                except Exception as _rag_exc:  # noqa: BLE001
+                    logger.warning("rag_diagnosis_skipped", reason=str(_rag_exc))
 
             outcome = _map_status_to_outcome(detection.status)
             finalize = self._session_manager.finalize_session(

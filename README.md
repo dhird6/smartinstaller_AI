@@ -1,12 +1,27 @@
-# SmartInstall AI — Installation Agent
+# SmartInstall AI — Installation Agent + RAG Diagnosis
 
-Automated installer intake, one-command monitored installation, failure detection, and RAG-ready JSON evidence reports.
+Automated installer intake, one-command monitored installation, failure detection, and automatic RAG-powered diagnosis using a local Phi-3 model — no cloud APIs required.
 
-## User workflow (3 steps)
+## How It Works
 
-1. **Copy** an installer into `installers/`
-2. **Run** one command
-3. **Open** the report in `reports/`
+```
+installers/  →  smartinstall run  →  Monitor  →  Detect failure  →  JSON report
+                                                                          ↓
+                                                               RAG Pipeline (Phi-3)
+                                                                          ↓
+                                                               rag_diagnosis.json
+```
+
+1. **Agent** runs the installer and collects evidence (process tree, event logs, crash reports, MSI logs)
+2. **FailureDetector** classifies the outcome (SUCCESS / FAILED / CRASHED / TIMED_OUT)
+3. **UnifiedReportWriter** writes `consolidated_report.json`
+4. **RagPipeline** automatically reads the report, embeds the error signals with `nomic-embed-text`, retrieves the closest KB docs from ChromaDB, and feeds them to `phi3:mini` → writes `rag_diagnosis.json`
+
+## User Workflow
+
+1. Copy an installer into `installers/`
+2. Run one command
+3. Open the report and diagnosis in `reports/`
 
 ```powershell
 cd smartinstaller_AI
@@ -19,88 +34,123 @@ python app.py run
 # or: smartinstall run
 ```
 
-No manual paths, session setup, or separate log collection commands required.
+## Models Used (RAG)
 
-## Project layout
+| Model | Role | Size |
+|---|---|---|
+| `phi3:mini` | Local LLM for diagnosis | 2.2 GB |
+| `nomic-embed-text` | Local embedding model | 274 MB |
+
+Pull before first run:
+```powershell
+ollama pull phi3:mini
+ollama pull nomic-embed-text
+```
+
+## Project Layout
 
 ```text
 smartinstaller_AI/
-├── app.py                    ← python app.py run
-├── installers/               ← drop .exe / .msi here
-├── reports/                  ← published JSON reports
-├── logs/                     ← application.log (agent)
-├── sessions/                 ← per-run artifacts + session summaries
+├── app.py                        ← python app.py run
+├── installer_rag.py              ← standalone RAG pipeline (manual use)
+├── installers/                   ← drop .exe / .msi here
+├── reports/                      ← published JSON reports + rag_diagnosis.json
+├── logs/                         ← application.log (agent)
+├── sessions/                     ← per-run artifacts + session summaries
 ├── config/smartinstall.config.json
+├── rag/                          ← knowledge base: generic installer failures (15 docs)
+├── rag_docs/                     ← knowledge base: Ollama-specific failures (11 docs)
 └── src/smartinstall/
+    ├── agent/
+    │   ├── collectors/           ← EventLog, Process, MSI, WER, InstallerLog
+    │   ├── detection/            ← FailureDetector, ErrorAggregator
+    │   ├── orchestration/        ← InstallationAgent (wires everything + calls RAG)
+    │   ├── runners/              ← InstallerRunner
+    │   └── session/              ← SessionManager, UnifiedReportWriter
+    └── rag/
+        └── rag_pipeline.py       ← RagPipeline — called automatically after report write
 ```
 
-## CLI commands
+## CLI Commands
 
 | Command | Description |
 |---------|-------------|
 | `smartinstall run` | Discover newest installer in `installers/`, run full workflow |
 | `smartinstall run --installer npp.8.9.6.2.Installer.x64.exe` | Run a specific package |
 | `smartinstall run-all` | Run every installer in `installers/` (oldest → newest) |
-| `smartinstall install C:\path\setup.exe` | Explicit path (bypasses repository) |
+| `smartinstall install C:\path\setup.exe` | Explicit path |
 | `smartinstall recover` | Mark interrupted sessions `Incomplete` |
 | `smartinstall demo` | Foundation demo (no installer launch) |
 
-### Options for `run` / `run-all`
-
-| Flag | Purpose |
-|------|---------|
-| `--installer NAME` | Select installer file (default: newest in `installers/`) |
-| `--product-name` | Application label in reports |
-| `--tag` | Correlation tag (e.g. ticket ID) |
-| `--args "/S"` | Silent install arguments |
-| `--timeout 3600` | Max seconds to wait |
-| `--config path` | Override config file |
-
-## Automated workflow
-
-```text
-installers/  →  smartinstall run  →  Session  →  Launch  →  Monitor
-    →  Detect failure  →  Collect evidence  →  JSON report  →  reports/
-```
-
-## Output artifacts
+## Output Artifacts
 
 | Location | Content |
 |----------|---------|
-| `reports/mingwgetsetup_failure_20260601_<id>.json` | **Single canonical report** (`status` + `errors` + `evidence`) |
+| `reports/<name>_<date>_<id>.json` | Canonical report (`status` + `errors` + `evidence`) |
+| `reports/rag_diagnosis_<id>.json` | Phi-3 diagnosis (`root_cause`, `confidence`, `fixes`, `verification_commands`) |
 | `sessions/<uuid>/` | Captured streams, `collected_logs/`, internal `session.json` |
 | `logs/application.log` | Agent structured log |
 
-### What gets captured (EXE / GUI installers)
+## RAG Diagnosis Output Format
 
-| Source | When | Stored in report |
-|--------|------|------------------|
-| stdout / stderr | During install | `status.logFiles`, stream-derived `errors[]` |
-| Windows Event Log (Application, System, Setup) | Live + post-install | `evidence.eventLogs`, `errors[]` |
-| Discovered `.log` / `.txt` under TEMP, APPDATA, etc. | After install (session window) | `evidence.installerLogFiles`, `errors[]` |
-| Child processes (downloaders, helpers) | During install | `evidence.childProcesses`, non-zero exit → `errors[]` |
-| WER crash dumps | Post-install | `evidence.crashReports` |
-| GUI with exit 0 and no evidence | Heuristic | `GUI_INSTALL_INCOMPLETE` in `errors[]` |
+```json
+{
+  "session_id": "...",
+  "outcome": "FAILED",
+  "root_cause": "...",
+  "confidence": "High",
+  "evidence": "...",
+  "recommended_fixes": ["1. ...", "2. ...", "3. ..."],
+  "verification_commands": ["where <exe>", "reg query ..."],
+  "escalation": "...",
+  "retrieved_docs": ["gui_install_incomplete.md", "application_not_detected.md"]
+}
+```
 
-For GUI installers (no `/S`), the agent waits `guiPostInstallGraceSeconds` (default 20s) after the main process exits so late errors (e.g. MinGW download failure dialogs) can land in logs and the Event Log.
+## Knowledge Base Coverage
 
-Config: `guiPostInstallGraceSeconds`, `maxInstallerLogFiles`, `installerLogSearchDepth` in `config/smartinstall.config.json`.
+### Generic Installer (`rag/`)
+| File | Error Code |
+|---|---|
+| `gui_install_incomplete.md` | `GUI_INSTALL_INCOMPLETE` |
+| `install_timeout.md` | `INSTALL_TIMEOUT` |
+| `install_cancelled.md` | `INSTALL_CANCELLED` |
+| `install_crash.md` | `INSTALL_CRASH` |
+| `network_failure.md` | `NETWORK_FAILURE` |
+| `permission_denied.md` | `PERMISSION_DENIED` |
+| `path_failure.md` | `PATH_CONFIGURATION_FAILURE` |
+| `antivirus_interference.md` | `ANTIVIRUS_INTERFERENCE` |
+| `component_missing.md` | `COMPONENT_MISSING` |
+| `process_tracking_failure.md` | `PROCESS_TRACKING_FAILURE` |
+| `log_collection_failure.md` | `LOG_COLLECTION_FAILURE` |
+| `application_not_detected.md` | `APPLICATION_NOT_DETECTED` |
+| `package_download_failure.md` | `PACKAGE_DOWNLOAD_FAILURE` |
+| `registry_entry_missing.md` | `REGISTRY_ENTRY_MISSING` |
+| `disk_space_failure.md` | `DISK_SPACE_FAILURE` |
+
+### Ollama-Specific (`rag_docs/`)
+| File | Error |
+|---|---|
+| `cuda_failure.md` | CUDA / ROCm initialization failed |
+| `gpu_detection.md` | No compatible GPU found |
+| `path_error.md` | `ollama` not recognized / missing PATH |
+| `connection_refused.md` | Could not connect to running Ollama instance |
+| `server_timeout.md` | Timed out waiting for server to start |
+| `antivirus_block.md` | Access denied / permission errors |
+| `missing_exe.md` | `ollama.exe` missing after install |
+| `proxy_issue.md` | Pull manifest failed / network issues |
+| `model_download.md` | Model download interrupted |
+| `disk_full.md` | No space left on device |
+| `port_conflict.md` | Port 11434 already in use |
 
 ## Requirements
 
 - Python 3.11+
-- Windows (installer execution + Event Log/WER)
+- Windows (installer execution + Event Log / WER)
+- Ollama installed and running (`ollama serve`)
 - Run PowerShell **as Administrator** for best Event Log coverage
 
-## Development
-
-```powershell
-pip install -r requirements.txt
-pip install -e .
-pytest
-```
-
-## Exit codes
+## Exit Codes
 
 | Code | Meaning |
 |------|---------|

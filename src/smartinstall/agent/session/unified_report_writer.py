@@ -17,7 +17,9 @@ from smartinstall.core.models.unified_report import (
 from smartinstall.core.models.evidence import InstallerDetails
 from smartinstall.core.models.unified_report import ReportErrorEntry
 from smartinstall.agent.collectors.event_log_collector import EventLogCollectionResult
+from smartinstall.agent.collectors.filesystem_collector import FilesystemCollectionResult
 from smartinstall.agent.collectors.installer_log_collector import InstallerLogCollectionResult
+from smartinstall.agent.collectors.registry_collector import RegistryCollectionResult
 from smartinstall.agent.collectors.msi_log_collector import MsiLogCollectionResult
 from smartinstall.agent.collectors.process_collector import ProcessCollectionResult
 from smartinstall.agent.collectors.wer_collector import WerCollectionResult
@@ -38,6 +40,8 @@ class UnifiedReportWriter:
         wer: WerCollectionResult,
         process: ProcessCollectionResult,
         installer_logs: InstallerLogCollectionResult,
+        registry: RegistryCollectionResult,
+        filesystem: FilesystemCollectionResult,
     ) -> UnifiedInstallationReport:
         outcome = _map_detection_to_outcome(detection.status)
         installation_completed = outcome in {"Success"} and not any(
@@ -83,6 +87,8 @@ class UnifiedReportWriter:
                 processSnapshot=process.snapshots,
                 childProcesses=process.child_processes,
                 installerLogFiles=installer_logs.discovered_logs,
+                registryChanges=registry.changes,
+                filesystemChanges=filesystem.changes,
             ),
         )
 

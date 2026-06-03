@@ -65,6 +65,60 @@ class SmartInstallConfig(BaseSettings):
     )
     max_installer_log_files: int = Field(default=40, alias="maxInstallerLogFiles", ge=1)
     installer_log_search_depth: int = Field(default=6, alias="installerLogSearchDepth", ge=1)
+    auto_run_slm: bool = Field(default=True, alias="autoRunSlm")
+    auto_monitor_enabled: bool = Field(
+        default=True,
+        alias="autoMonitorEnabled",
+        description="Automatically detect and monitor installers launched outside Smart Installer",
+    )
+    background_poll_interval_seconds: int = Field(
+        default=5,
+        alias="backgroundPollIntervalSeconds",
+        ge=2,
+    )
+    auto_monitor_max_process_age_seconds: int = Field(
+        default=120,
+        alias="autoMonitorMaxProcessAgeSeconds",
+        ge=30,
+        description="Only monitor installer processes started within this many seconds",
+    )
+    auto_monitor_cooldown_seconds: int = Field(
+        default=600,
+        alias="autoMonitorCooldownSeconds",
+        ge=60,
+        description="Do not re-monitor the same installer path until cooldown elapses",
+    )
+    auto_monitor_max_concurrent: int = Field(
+        default=1,
+        alias="autoMonitorMaxConcurrent",
+        ge=1,
+        le=3,
+        description="Maximum simultaneous automatic monitoring sessions",
+    )
+    enable_windows_notifications: bool = Field(
+        default=True,
+        alias="enableWindowsNotifications",
+    )
+    minimize_to_tray: bool = Field(
+        default=True,
+        alias="minimizeToTray",
+        description="Closing the window hides to system tray instead of exiting",
+    )
+    start_minimized_to_tray: bool = Field(
+        default=False,
+        alias="startMinimizedToTray",
+        description="Start with dashboard hidden; tray icon only",
+    )
+    auto_start_at_login: bool = Field(
+        default=False,
+        alias="autoStartAtLogin",
+        description="Register current user Run key to launch Smart Installer at logon",
+    )
+    slm_model: str = Field(default="phi3:mini", alias="slmModel")
+    slm_embedding_model: str = Field(default="nomic-embed-text", alias="slmEmbeddingModel")
+    slm_top_k: int = Field(default=2, alias="slmTopK", ge=1)
+    slm_timeout_seconds: int = Field(default=300, alias="slmTimeoutSeconds", ge=1)
+    rag_docs_directory: Path = Field(default=Path("rag_docs"), alias="ragDocsDirectory")
     monitored_filesystem_paths: list[str] = Field(
         default_factory=list, alias="monitoredFilesystemPaths"
     )
@@ -82,6 +136,7 @@ class SmartInstallConfig(BaseSettings):
         "output_root",
         "sessions_summary_dir",
         "agent_log_path",
+        "rag_docs_directory",
         mode="before",
     )
     @classmethod
@@ -132,6 +187,17 @@ class ConfigProvider:
 
     @staticmethod
     def _default_config_path() -> Path:
+        import sys
+
+        if getattr(sys, "frozen", False):
+            exe_dir = Path(sys.executable).resolve().parent
+            bundled = Path(getattr(sys, "_MEIPASS", exe_dir)) / "config" / "smartinstall.config.json"
+            if bundled.is_file():
+                return bundled
+            exe_config = exe_dir / "config" / "smartinstall.config.json"
+            if exe_config.is_file():
+                return exe_config
+
         repo_config = Path(__file__).resolve().parents[4] / "config" / "smartinstall.config.json"
         if repo_config.is_file():
             return repo_config

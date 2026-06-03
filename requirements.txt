@@ -5,6 +5,9 @@ platformdirs>=4.2,<5
 psutil>=5.9,<7
 pywin32>=306; sys_platform == "win32"
 
+# Desktop UI (required for desktop.py)
+PySide6>=6.6,<7
+
 # Local SLM / RAG
 ollama
 langchain

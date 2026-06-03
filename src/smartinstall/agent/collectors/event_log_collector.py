@@ -64,6 +64,13 @@ class EventLogCollector:
                 self._seen_keys.add(key)
                 self._live_entries.append(entry)
 
+    def drain_live_entries(self, max_items: int = 5) -> list[EventLogEvidence]:
+        """Return recent live-captured events for streaming dashboards."""
+        if max_items <= 0:
+            return []
+        with self._live_lock:
+            return list(self._live_entries[-max_items:])
+
     def collect(self) -> EventLogCollectionResult:
         if self._session_start is None:
             self._session_start = datetime.now(timezone.utc)

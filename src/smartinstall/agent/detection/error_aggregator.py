@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from smartinstall.agent.collectors.event_log_collector import EventLogCollectionResult
+from smartinstall.agent.collectors.filesystem_collector import FilesystemCollectionResult
 from smartinstall.agent.collectors.installer_log_collector import InstallerLogCollectionResult
+from smartinstall.agent.collectors.registry_collector import RegistryCollectionResult
 from smartinstall.agent.collectors.msi_log_collector import MsiLogCollectionResult
 from smartinstall.agent.collectors.process_collector import ProcessCollectionResult
 from smartinstall.agent.collectors.wer_collector import WerCollectionResult
@@ -25,6 +27,8 @@ def build_error_entries(
     msi_logs: MsiLogCollectionResult,
     wer: WerCollectionResult,
     installer_logs: InstallerLogCollectionResult,
+    registry: RegistryCollectionResult,
+    filesystem: FilesystemCollectionResult,
     process: ProcessCollectionResult,
     collection_errors: list[str],
     installer_type: InstallerType,
@@ -113,6 +117,38 @@ def build_error_entries(
                         severity="warning",
                     )
                 )
+
+    for change in registry.changes[:25]:
+        if change.change_type != "added":
+            continue
+        if "uninstall" not in change.key_path.lower():
+            continue
+        errors.append(
+            ReportErrorEntry(
+                category="registry",
+                code="REGISTRY_KEY_ADDED",
+                message=(
+                    f"Registry value added: {change.hive}\\{change.key_path}"
+                    f"\\{change.value_name}"
+                ),
+                source="RegistryCollector",
+                timestamp=failure_timestamp,
+                severity="info",
+            )
+        )
+
+    install_like = [c for c in filesystem.changes if c.change_type in {"created", "modified"}]
+    for change in install_like[:15]:
+        errors.append(
+            ReportErrorEntry(
+                category="filesystem",
+                code=f"FS_{change.change_type.upper()}",
+                message=f"Filesystem {change.change_type}: {change.path}",
+                source="FilesystemCollector",
+                timestamp=failure_timestamp,
+                severity="info",
+            )
+        )
 
     for child in process.child_processes:
         if child.exit_code is not None and child.exit_code != 0:

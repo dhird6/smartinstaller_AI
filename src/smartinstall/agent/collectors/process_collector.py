@@ -82,6 +82,12 @@ class ProcessCollector:
         except Exception as exc:  # noqa: BLE001
             self._errors.append(str(exc))
 
+    def drain_recent_snapshots(self, max_items: int = 3) -> list[ProcessSnapshotItem]:
+        """Return the most recent process snapshots for live UI streaming."""
+        if max_items <= 0:
+            return []
+        return list(self._snapshots[-max_items:])
+
     def finalize(self) -> ProcessCollectionResult:
         self._tracking = False
         self._reap_exited_children()

@@ -114,6 +114,7 @@ class InstallerRunner:
                 parent_pid=parent_pid,
                 timeout_seconds=timeout_seconds,
                 process_collector=process_collector,
+                event_collector=event_collector,
             )
 
         try:
@@ -374,7 +375,7 @@ class InstallerRunner:
                 str(installer_path),
                 "/l*v",
                 str(msi_log_path),
-                "/qn",
+                "/qb",
                 "/norestart",
             ]
             return command + extra

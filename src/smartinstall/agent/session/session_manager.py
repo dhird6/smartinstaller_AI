@@ -35,6 +35,15 @@ from smartinstall.core.results.result import Result
 
 logger = structlog.get_logger(__name__)
 
+_TERMINAL_SESSION_STATES = frozenset(
+    {
+        SessionStatus.COMPLETED,
+        SessionStatus.FAILED,
+        SessionStatus.INCOMPLETE,
+        SessionStatus.TIMED_OUT,
+    }
+)
+
 
 class SessionManager:
     """Creates, tracks, and finalizes installation sessions (ISessionManager)."""
@@ -129,6 +138,11 @@ class SessionManager:
 
             self._registry[session_id] = updated
             self._output_manager.write_session_manifest(updated)
+            if (
+                target_state in _TERMINAL_SESSION_STATES
+                and self._active_session_id == session_id
+            ):
+                self._active_session_id = None
             logger.info(
                 "session_state_transition",
                 session_id=session_id,

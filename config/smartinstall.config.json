@@ -22,6 +22,27 @@
   "guiPostInstallGraceSeconds": 20,
   "maxInstallerLogFiles": 40,
   "installerLogSearchDepth": 6,
-  "monitoredFilesystemPaths": [],
-  "registrySnapshotKeys": []
+  "autoRunSlm": true,
+  "autoMonitorEnabled": true,
+  "backgroundPollIntervalSeconds": 5,
+  "autoMonitorMaxProcessAgeSeconds": 120,
+  "autoMonitorCooldownSeconds": 600,
+  "autoMonitorMaxConcurrent": 1,
+  "enableWindowsNotifications": true,
+  "minimizeToTray": true,
+  "startMinimizedToTray": false,
+  "autoStartAtLogin": false,
+  "slmModel": "phi3:mini",
+  "slmEmbeddingModel": "nomic-embed-text",
+  "slmTopK": 2,
+  "slmTimeoutSeconds": 300,
+  "ragDocsDirectory": "rag_docs",
+  "monitoredFilesystemPaths": [
+    "%ProgramFiles%",
+    "%LOCALAPPDATA%"
+  ],
+  "registrySnapshotKeys": [
+    "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
+  ]
 }

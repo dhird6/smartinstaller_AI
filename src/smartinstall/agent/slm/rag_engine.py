@@ -1,0 +1,184 @@
+"""Local RAG + SLM diagnosis engine (shared by CLI and desktop UI)."""
+
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from langchain_chroma import Chroma
+from langchain_classic.chains import create_retrieval_chain
+from langchain_classic.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.documents import Document
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_ollama import OllamaEmbeddings, OllamaLLM
+
+from smartinstall.agent.infrastructure.project_paths import get_project_root
+from smartinstall.core.models.unified_report import UnifiedInstallationReport
+
+
+@dataclass(frozen=True, slots=True)
+class RagDiagnosisConfig:
+    """Runtime configuration for local SLM inference."""
+
+    docs_path: Path
+    llm_model: str = "phi3:mini"
+    embedding_model: str = "nomic-embed-text"
+    top_k: int = 2
+    temperature: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class RagDiagnosisResult:
+    """Outcome of a single RAG diagnosis run."""
+
+    answer: str
+    sources: list[str]
+    prompt_input: str
+
+
+_ERROR_LINE_PATTERN = re.compile(
+    r"(error|critical|failed|warning|exception|timeout|refused|denied|network)",
+    re.IGNORECASE,
+)
+
+
+def extract_relevant_log_lines(log_text: str, *, tail: int = 40) -> str:
+    """Filter to high-signal lines; fall back to the last `tail` lines."""
+    lines = [line for line in log_text.strip().splitlines() if line.strip()]
+    filtered = [line for line in lines if _ERROR_LINE_PATTERN.search(line)]
+    relevant = filtered if filtered else lines
+    return "\n".join(relevant[-tail:])
+
+
+def load_report(report_path: Path) -> UnifiedInstallationReport:
+    """Load and validate a SmartInstall unified report JSON file."""
+    resolved = report_path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Report not found: {resolved}")
+    raw = json.loads(resolved.read_text(encoding="utf-8"))
+    return UnifiedInstallationReport.model_validate(raw)
+
+
+def build_input_from_report(report: UnifiedInstallationReport) -> str:
+    """Convert a unified report into compact SLM prompt input."""
+    status = report.status
+    lines: list[str] = [
+        f"Application: {status.application}",
+        f"Installer: {status.installer.installer_name}",
+        f"Outcome: {status.installation_outcome}",
+        f"Completed: {status.installation_completed}",
+        f"Workflow: {status.workflow_status}",
+    ]
+    if status.failure_reason:
+        lines.append(f"Failure reason: {status.failure_reason}")
+
+    for error in report.errors[:30]:
+        lines.append(
+            "ERROR "
+            f"[{error.category}/{error.code}]: "
+            f"{error.message} | source={error.source}"
+        )
+
+    for event in report.evidence.event_logs[:20]:
+        lines.append(
+            "EVENT "
+            f"[{event.level}/{event.event_id}]: "
+            f"{event.message}"
+        )
+
+    for installer_log in report.evidence.installer_log_files[:10]:
+        for preview in installer_log.preview_lines[:6]:
+            lines.append(f"INSTALLER_LOG: {preview}")
+
+    for change in report.evidence.registry_changes[:10]:
+        lines.append(
+            "REGISTRY "
+            f"{change.change_type}: {change.hive}\\{change.key_path}\\{change.value_name}"
+        )
+
+    for change in report.evidence.filesystem_changes[:10]:
+        lines.append(f"FILESYSTEM {change.change_type}: {change.path}")
+
+    return extract_relevant_log_lines("\n".join(lines))
+
+
+def build_input_from_report_path(report_path: Path) -> str:
+    """Load report JSON from disk and build SLM prompt input."""
+    return build_input_from_report(load_report(report_path))
+
+
+def default_rag_docs_path() -> Path:
+    import sys
+
+    root = get_project_root()
+    candidates = [
+        root / "rag_docs",
+        Path(getattr(sys, "_MEIPASS", root)) / "rag_docs",
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate.resolve()
+    return (root / "rag_docs").resolve()
+
+
+def _load_documents(docs_path: Path) -> list[Document]:
+    if not docs_path.is_dir():
+        raise FileNotFoundError(f"RAG docs directory not found: {docs_path}")
+
+    documents: list[Document] = []
+    for md_file in sorted(docs_path.glob("*.md")):
+        text = md_file.read_text(encoding="utf-8")
+        documents.append(Document(page_content=text, metadata={"source": md_file.name}))
+    if not documents:
+        raise RuntimeError(f"No markdown documents found in {docs_path}")
+    return documents
+
+
+def run_rag_diagnosis(
+    input_text: str,
+    config: RagDiagnosisConfig,
+) -> RagDiagnosisResult:
+    """Run retrieval-augmented diagnosis against the local knowledge base."""
+    documents = _load_documents(config.docs_path.resolve())
+    embeddings = OllamaEmbeddings(model=config.embedding_model)
+    vector_store = Chroma.from_documents(documents=documents, embedding=embeddings)
+    retriever = vector_store.as_retriever(search_kwargs={"k": config.top_k})
+
+    llm = OllamaLLM(model=config.llm_model, temperature=config.temperature)
+    system_prompt = (
+        "You are an automated Windows installer troubleshooting assistant.\n"
+        "Use ONLY the provided documentation context.\n"
+        "Respond with these sections:\n"
+        "1) Error Summary\n"
+        "2) Root Cause\n"
+        "3) Recommended Fix (numbered steps)\n"
+        "If evidence is insufficient, say what additional data is needed.\n\n"
+        "Documentation Context:\n{context}"
+    )
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            ("human", "Installation failure evidence:\n\n{input}"),
+        ]
+    )
+    qa_chain = create_stuff_documents_chain(llm, prompt)
+    rag_chain = create_retrieval_chain(retriever, qa_chain)
+    result = rag_chain.invoke({"input": input_text})
+    sources = [str(doc.metadata.get("source", "unknown")) for doc in result.get("context", [])]
+    return RagDiagnosisResult(
+        answer=str(result.get("answer", "")),
+        sources=sources,
+        prompt_input=input_text,
+    )
+
+
+def diagnose_report(
+    report_path: Path,
+    config: RagDiagnosisConfig,
+) -> RagDiagnosisResult:
+    """End-to-end diagnosis from a SmartInstall JSON report path."""
+    prompt_input = build_input_from_report_path(report_path)
+    diagnosis = run_rag_diagnosis(prompt_input, config)
+    return diagnosis

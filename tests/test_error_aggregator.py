@@ -1,7 +1,9 @@
 """Tests for unified report error aggregation."""
 
 from smartinstall.agent.collectors.event_log_collector import EventLogCollectionResult
+from smartinstall.agent.collectors.filesystem_collector import FilesystemCollectionResult
 from smartinstall.agent.collectors.installer_log_collector import InstallerLogCollectionResult
+from smartinstall.agent.collectors.registry_collector import RegistryCollectionResult
 from smartinstall.agent.collectors.msi_log_collector import MsiLogCollectionResult
 from smartinstall.agent.collectors.process_collector import ProcessCollectionResult
 from smartinstall.agent.collectors.wer_collector import WerCollectionResult
@@ -45,6 +47,8 @@ def test_child_process_non_zero_exit_in_errors() -> None:
         msi_logs=MsiLogCollectionResult(),
         wer=WerCollectionResult(),
         installer_logs=InstallerLogCollectionResult(),
+        registry=RegistryCollectionResult(),
+        filesystem=FilesystemCollectionResult(),
         process=process,
         collection_errors=[],
         installer_type=InstallerType.EXE,
@@ -97,6 +101,8 @@ def test_gui_incomplete_suppressed_when_installer_log_found() -> None:
         msi_logs=MsiLogCollectionResult(),
         wer=WerCollectionResult(),
         installer_logs=installer_logs,
+        registry=RegistryCollectionResult(),
+        filesystem=FilesystemCollectionResult(),
         process=ProcessCollectionResult(),
         collection_errors=[],
         installer_type=InstallerType.EXE,

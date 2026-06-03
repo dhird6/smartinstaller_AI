@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from smartinstall.agent.infrastructure.project_paths import get_project_root
+from smartinstall.agent.slm.rag_engine import RagDiagnosisConfig, diagnose_report
 
 
 @dataclass(slots=True)
@@ -15,22 +16,24 @@ class SlmDiagnosisResult:
     return_code: int
     report_path: Path
     output: str
-    command: list[str]
+    sources: list[str]
     error: str | None = None
 
 
 def run_slm_for_report(
     report_path: Path,
     *,
+    config: RagDiagnosisConfig | None = None,
     timeout_seconds: int = 300,
 ) -> SlmDiagnosisResult:
     """
-    Validate SmartInstall JSON and invoke local SLM (`rag.py --report ...`).
+    Validate SmartInstall JSON and run in-process RAG diagnosis.
 
     Security note:
-    - Uses subprocess argument list (no shell) to avoid command injection.
-    - Accepts only an existing report path and validates JSON before invocation.
+    - Accepts only an existing report path.
+    - Validates JSON before model invocation.
     """
+    _ = timeout_seconds  # Reserved for future async timeout control.
     resolved_report = report_path.resolve()
     if not resolved_report.is_file():
         return SlmDiagnosisResult(
@@ -38,7 +41,7 @@ def run_slm_for_report(
             return_code=1,
             report_path=resolved_report,
             output="",
-            command=[],
+            sources=[],
             error=f"Report JSON not found: {resolved_report}",
         )
 
@@ -50,51 +53,31 @@ def run_slm_for_report(
             return_code=1,
             report_path=resolved_report,
             output="",
-            command=[],
+            sources=[],
             error=f"Invalid report JSON: {exc}",
         )
 
-    project_root = Path(__file__).resolve().parents[4]
-    rag_script = project_root / "rag.py"
-    if not rag_script.is_file():
-        return SlmDiagnosisResult(
-            success=False,
-            return_code=1,
-            report_path=resolved_report,
-            output="",
-            command=[],
-            error=f"SLM script missing: {rag_script}",
-        )
-
-    command = [sys.executable, str(rag_script), "--report", str(resolved_report)]
+    rag_config = config or RagDiagnosisConfig(docs_path=(get_project_root() / "rag_docs").resolve())
     try:
-        completed = subprocess.run(
-            command,
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            shell=False,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
+        diagnosis = diagnose_report(resolved_report, rag_config)
+    except Exception as exc:  # noqa: BLE001
         return SlmDiagnosisResult(
             success=False,
             return_code=1,
             report_path=resolved_report,
             output="",
-            command=command,
-            error=f"Failed to run SLM diagnosis: {exc}",
+            sources=[],
+            error=f"SLM diagnosis failed: {exc}",
         )
 
-    merged_output = "\n".join(
-        part.strip() for part in (completed.stdout, completed.stderr) if part and part.strip()
-    )
+    output = diagnosis.answer.strip()
+    if diagnosis.sources:
+        output = f"{output}\n\nRetrieved sources: {', '.join(diagnosis.sources)}"
     return SlmDiagnosisResult(
-        success=completed.returncode == 0,
-        return_code=completed.returncode,
+        success=True,
+        return_code=0,
         report_path=resolved_report,
-        output=merged_output,
-        command=command,
-        error=None if completed.returncode == 0 else "SLM diagnosis returned non-zero exit code",
+        output=output,
+        sources=diagnosis.sources,
+        error=None,
     )

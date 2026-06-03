@@ -12,7 +12,7 @@ from smartinstall.agent.slm.auto_diagnosis import run_slm_for_report
 from smartinstall.core.models.requests import StartSessionRequest
 from smartinstall.core.models.unified_report import UnifiedInstallationReport
 
-_SUBCOMMANDS = frozenset({"run", "run-all", "install", "recover", "demo"})
+_SUBCOMMANDS = frozenset({"run", "run-all", "install", "recover", "demo", "gui", "service"})
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
@@ -53,6 +53,16 @@ def create_argument_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--args", dest="additional_args")
     install_parser.add_argument("--timeout", type=int, dest="timeout_seconds")
 
+    subparsers.add_parser("gui", help="Launch desktop chat application")
+    service_parser = subparsers.add_parser(
+        "service",
+        help="Windows SCM service control (install/start/stop/remove)",
+    )
+    service_parser.add_argument(
+        "service_command",
+        choices=["install", "remove", "start", "stop", "restart"],
+        help="Service control action (requires Administrator on Windows)",
+    )
     subparsers.add_parser("recover", help="Mark incomplete sessions as Incomplete")
     demo_parser = subparsers.add_parser("demo", help="Foundation demo without installer launch")
     demo_parser.add_argument("installer_path", nargs="?", help="Optional installer path")
@@ -84,6 +94,9 @@ def run(argv: list[str] | None = None) -> int:
     config_path = Path(args.config_path).resolve() if getattr(args, "config_path", None) else None
     container = build_container(config_path)
 
+    if command == "gui":
+        return _run_desktop(config_path)
+
     if command == "recover":
         count = container.session_manager.recover_incomplete_sessions()
         container.logger.info("recover_only_complete", count=count)
@@ -100,6 +113,9 @@ def run(argv: list[str] | None = None) -> int:
 
     if command == "install":
         return _run_explicit_install(container, args)
+
+    if command == "service":
+        return _run_service_command(args.service_command)
 
     parser.print_help()
     return 4
@@ -231,6 +247,32 @@ def _run_slm_diagnosis(container: ServiceContainer, report_path: Path) -> None:
     )
     print("\nSLM Diagnosis:")
     print(result.output or "(no output)")
+
+
+def _run_service_command(action: str) -> int:
+    import sys
+
+    if sys.platform != "win32":
+        print("Windows Service commands require Windows.", file=sys.stderr)
+        return 3
+
+    from smartinstall.agent.windows.monitor_windows_service import handle_service_command_line
+
+    sys.argv = ["smartinstall", "service", action]
+    handle_service_command_line()
+    return 0
+
+
+def _run_desktop(config_path: Path | None) -> int:
+    try:
+        from smartinstall.ui.main import run_desktop
+    except ImportError as exc:
+        print(
+            "Desktop dependencies are missing. Install with:\n"
+            "  pip install -e \".[desktop]\""
+        )
+        return 3
+    return run_desktop(config_path)
 
 
 def _run_foundation_demo(container: ServiceContainer, args: argparse.Namespace) -> int:

@@ -15,8 +15,12 @@ logger = structlog.get_logger(__name__)
 class AgentEvent(StrEnum):
     SESSION_STARTED = "SessionStarted"
     SESSION_ENDED = "SessionEnded"
+    INSTALLER_DETECTED = "InstallerDetected"
     INSTALLER_LAUNCHED = "InstallerLaunched"
     INSTALLER_EXITED = "InstallerExited"
+    INSTALL_STAGE_CHANGED = "InstallStageChanged"
+    LIVE_LOG_LINE = "LiveLogLine"
+    INSTALLATION_ERROR_DETECTED = "InstallationErrorDetected"
     COLLECTION_COMPLETE = "CollectionComplete"
     REPORT_WRITE_FAILURE = "ReportWriteFailure"
 

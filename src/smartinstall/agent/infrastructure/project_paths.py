@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -13,6 +14,9 @@ def get_project_root() -> Path:
     env_root = os.environ.get("SMARTINSTALL_PROJECT_ROOT")
     if env_root:
         return Path(env_root).resolve()
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
 
     anchor = Path(__file__).resolve()
     for parent in anchor.parents:

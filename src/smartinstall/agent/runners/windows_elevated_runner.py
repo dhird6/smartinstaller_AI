@@ -14,7 +14,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 SEE_MASK_NOCLOSEPROCESS = 0x00000040
-SW_HIDE = 0
+SW_SHOWNORMAL = 1
 WAIT_OBJECT_0 = 0x00000000
 WAIT_TIMEOUT = 0x00000102
 STILL_ACTIVE = 259
@@ -65,7 +65,8 @@ def run_elevated(
     info.lpFile = executable
     info.lpParameters = parameters
     info.lpDirectory = working_directory
-    info.nShow = SW_HIDE
+    # Show the installer UI (UAC still prompts; child process must not be hidden).
+    info.nShow = SW_SHOWNORMAL
 
     if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(info)):
         raise ctypes.WinError()

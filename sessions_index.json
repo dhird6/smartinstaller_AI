@@ -14,5 +14,37 @@
     "outcome": "Failure",
     "diagnosticScore": 10,
     "reportPath": "D:\\Autodesk Technology Project\\Smart Installer AI\\smartinstaller_AI\\sessions\\9a9799c6-c62a-4281-9cdb-b10d1e63c44c\\smartinstall_report.json"
+  },
+  {
+    "sessionId": "737786ab-30af-469a-8aa9-cbda6a1b4e86",
+    "startTimestamp": "2026-06-02T08:57:09.047Z",
+    "endTimestamp": "2026-06-02T08:57:52.741Z",
+    "outcome": "Failure",
+    "diagnosticScore": 10,
+    "reportPath": "D:\\Autodesk Technology Project\\Smart Installer AI\\smartinstaller_AI\\sessions\\737786ab-30af-469a-8aa9-cbda6a1b4e86\\smartinstall_report.json"
+  },
+  {
+    "sessionId": "1de90c1b-d130-4ad5-8c15-426d6cfda1cd",
+    "startTimestamp": "2026-06-02T13:25:19.796Z",
+    "endTimestamp": "2026-06-02T13:28:24.877Z",
+    "outcome": "Success",
+    "diagnosticScore": 0,
+    "reportPath": "D:\\Autodesk Technology Project\\Smart Installer AI\\smartinstaller_AI\\sessions\\1de90c1b-d130-4ad5-8c15-426d6cfda1cd\\smartinstall_report.json"
+  },
+  {
+    "sessionId": "fab19ec2-601a-4c11-bcfd-8f1d708631e9",
+    "startTimestamp": "2026-06-03T06:39:22.798Z",
+    "endTimestamp": "2026-06-03T06:41:41.084Z",
+    "outcome": "Success",
+    "diagnosticScore": 0,
+    "reportPath": "D:\\Autodesk Technology Project\\Smart Installer AI\\smartinstaller_AI\\sessions\\fab19ec2-601a-4c11-bcfd-8f1d708631e9\\smartinstall_report.json"
+  },
+  {
+    "sessionId": "169f2e6e-ca75-40ac-bc3a-af29d538c45a",
+    "startTimestamp": "2026-06-03T11:08:32.032Z",
+    "endTimestamp": "2026-06-03T11:39:08.479Z",
+    "outcome": "Failure",
+    "diagnosticScore": 10,
+    "reportPath": "D:\\Autodesk Technology Project\\Smart Installer AI\\smartinstaller_AI\\sessions\\169f2e6e-ca75-40ac-bc3a-af29d538c45a\\smartinstall_report.json"
   }
 ]

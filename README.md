@@ -19,11 +19,108 @@ Installer -> Monitor -> smartinstall_report.json -> RAG retrieval -> Phi-3 fix s
 cd smartinstaller_AI
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-pip install -e .
+pip install -e ".[desktop]"
 
-# run installer monitoring + automatic SLM diagnosis
+# CLI workflow (install + automatic SLM diagnosis)
 python app.py run --installer mingw-get-setup.exe
+
+# Desktop enterprise UI (recommended)
+python desktop.py
+# or: python app.py gui
+# Navigate: Home Dashboard | Monitoring | Troubleshooting + right AI Assistant
 ```
+
+## Desktop application (PySide6) — CCTech Enterprise UI
+
+Premium enterprise shell inspired by [CCTech](https://www.cctech.co.in/):
+
+| Area | Features |
+|------|----------|
+| **Collapsible sidebar** | CCTech logo & branding, sectioned nav (Dashboard, Monitoring, Troubleshooting, Installation Center, Full Chat) |
+| **Home dashboard** | Active/recent/failed installs, success rate, background monitoring status (no browse on home) |
+| **Installation Center** | Manual Mode 2: browse, upload, start monitored install |
+| **Background service** | Mode 1: auto-detect installers launched from Explorer (`python background_service.py`) |
+| **AI Assistant** (right, dockable) | Minimize FAB, compact/docked/fullscreen, welcome + suggested prompts |
+| **Monitoring** | Live log viewer (pause/search/filter/export), process stage, real-time event stream |
+| **Troubleshooting** | Error logs, root cause, RAG sources, smart error popup + Windows toast notifications |
+
+**CCTech brand logo:** place `images/logo.png` in the project root (`smartinstaller_AI/images/logo.png`). The app uses it for the sidebar, dashboard hero, splash, window icon, and chat UI. Bundled SVG placeholders are not used.
+
+Branding: deep navy + cyan gradients, glass cards, animated background, splash screen on startup.
+
+The desktop app reuses the same backend engines:
+
+- Installation orchestrator
+- Monitoring + evidence collectors
+- Unified JSON report publisher
+- Local SLM/RAG diagnosis
+
+### Dual monitoring modes
+
+| Mode | Workflow |
+|------|----------|
+| **Automatic (Mode 1)** | User runs installer from Explorer → background service detects process → passive monitoring + toasts |
+| **Manual (Mode 2)** | Installation Center → browse/upload → monitored install (existing workflow) |
+
+Chat commands:
+
+- `list` — show installers in `installers/`
+- `install <file-name>` — run monitored install + SLM
+- **Installation Center** — browse/upload `.exe` / `.msi` for manual monitoring
+
+### Background monitoring service
+
+```powershell
+python background_service.py
+```
+
+Runs installer detection, evidence collection, Windows notifications, and writes `sessions/monitoring_state.json` for dashboard sync (also started automatically with `python desktop.py` when `autoMonitorEnabled` is true).
+
+### System tray (always-on)
+
+- Close the dashboard → app stays in the **system tray** (`minimizeToTray`: true by default).
+- Start tray-only: `python desktop.py --tray`
+- Tray menu: open dashboard, live monitoring, pause/resume auto-detect, auto-start at login, view last failure.
+
+### Windows Service (SCM)
+
+Register monitoring as a true Windows Service (runs without UI, even when no user is logged in):
+
+```powershell
+# Administrator PowerShell
+.\scripts\install_windows_service.ps1
+
+# Or manually:
+python smartinstall_service.py install
+python smartinstall_service.py start
+python app.py service stop
+```
+
+Service name: `SmartInstallAIMonitor`
+
+### MSI / UAC parent-chain detection
+
+Automatic mode resolves installer chains:
+
+- `msiexec.exe /i package.msi` → monitors **msiexec PID**, records **.msi path**
+- UAC (`consent.exe` → elevated `setup.exe`) → flags **elevation** and walks parents
+- Dedupes wrapper + child so the same install is not monitored twice
+
+### User-initiated only (no background loop)
+
+Automatic monitoring **ignores** Windows Update, silent `msiexec /qn`, SYSTEM/service accounts, and `Windows\Installer` cache paths. It only starts when there is a clear **user signal** (e.g. launched from **Explorer**, installer under **Downloads/Desktop**).
+
+Anti-loop settings in `smartinstall.config.json`:
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `autoMonitorMaxProcessAgeSeconds` | 120 | Only brand-new installer processes |
+| `autoMonitorCooldownSeconds` | 600 | Same installer not monitored again for 10 min |
+| `autoMonitorMaxConcurrent` | 1 | One automatic session at a time |
+
+### Auto-start at login (further enhancement)
+
+Set `"autoStartAtLogin": true` in `config/smartinstall.config.json`, or enable **Enable auto-start at login** from the tray menu. Launches `desktop.py --tray` at user logon.
 
 ## SmartInstall output
 
@@ -67,3 +164,23 @@ ollama pull nomic-embed-text
 ```powershell
 pytest
 ```
+
+## Packaging (SmartInstallAI.exe)
+
+```powershell
+# Close SmartInstallAI.exe if it is running, then:
+.\scripts\build_desktop.ps1
+```
+
+Output: `dist\SmartInstallAI.exe`
+
+If you see `ModuleNotFoundError: langchain_classic.chains.retrieval`, rebuild with the latest
+`packaging\SmartInstallAI.spec` (LangChain uses lazy imports that PyInstaller must bundle explicitly).
+
+Requirements on target machine:
+
+- Windows 10/11
+- Ollama running locally with `phi3:mini` and `nomic-embed-text`
+- Run as Administrator for full registry/event log coverage
+
+The bundle includes `config/` and `rag_docs/`. Installer/session folders are created next to the executable.

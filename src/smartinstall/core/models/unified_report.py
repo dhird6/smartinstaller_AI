@@ -8,10 +8,12 @@ from smartinstall.core.models.evidence import (
     ChildProcessEvidence,
     CrashReportEvidence,
     EventLogEvidence,
+    FilesystemChangeEvidence,
     InstallerDetails,
     InstallerLogFileEvidence,
     MsiDiagnosticEvidence,
     ProcessSnapshotItem,
+    RegistryChangeEvidence,
 )
 from smartinstall.version import SCHEMA_VERSION
 
@@ -65,6 +67,12 @@ class EvidenceSection(BaseModel):
     child_processes: list[ChildProcessEvidence] = Field(default_factory=list, alias="childProcesses")
     installer_log_files: list[InstallerLogFileEvidence] = Field(
         default_factory=list, alias="installerLogFiles"
+    )
+    registry_changes: list[RegistryChangeEvidence] = Field(
+        default_factory=list, alias="registryChanges"
+    )
+    filesystem_changes: list[FilesystemChangeEvidence] = Field(
+        default_factory=list, alias="filesystemChanges"
     )
 
     model_config = {"populate_by_name": True}

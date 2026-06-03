@@ -94,6 +94,26 @@ class ChildProcessEvidence(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class RegistryChangeEvidence(BaseModel):
+    hive: str
+    key_path: str = Field(alias="keyPath")
+    value_name: str = Field(alias="valueName")
+    change_type: str = Field(alias="changeType")  # added | removed | modified
+    before_value: str | None = Field(default=None, alias="beforeValue")
+    after_value: str | None = Field(default=None, alias="afterValue")
+
+    model_config = {"populate_by_name": True}
+
+
+class FilesystemChangeEvidence(BaseModel):
+    path: str
+    change_type: str = Field(alias="changeType")  # created | deleted | modified
+    size_before: int | None = Field(default=None, alias="sizeBefore")
+    size_after: int | None = Field(default=None, alias="sizeAfter")
+
+    model_config = {"populate_by_name": True}
+
+
 class InstallerLogFileEvidence(BaseModel):
     """Log file written by the installer or its children during the session."""
 

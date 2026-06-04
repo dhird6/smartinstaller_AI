@@ -112,6 +112,11 @@ class InstallerProcessDetector:
             return None
 
         create_time = info.get("create_time")
+        ppid = info.get("ppid")
+        parent_chain: tuple[str, ...] = ()
+        if ppid:
+            parent_chain = _parent_names(int(ppid))
+
         chain_ctx = resolve_installer_chain(pid)
 
         if chain_ctx is not None and chain_ctx.installer_path is not None:
@@ -130,7 +135,12 @@ class InstallerProcessDetector:
                 via_msiexec=chain_ctx.via_msiexec,
                 chain_summary=chain_ctx.chain_summary,
             )
-            return self._apply_user_policy(candidate, create_time, parent_chain)
+            merged_parents = parent_chain + chain_ctx.parent_chain
+            return self._apply_user_policy(
+                candidate,
+                create_time,
+                merged_parents,
+            )
 
         exe_raw = info.get("exe")
         exe_path: Path | None = None
@@ -143,15 +153,15 @@ class InstallerProcessDetector:
         cmdline_parts = info.get("cmdline") or []
         cmdline = " ".join(cmdline_parts) if cmdline_parts else None
 
-        if not looks_like_user_installer_candidate(name, exe_path, cmdline):
+        if not looks_like_user_installer_candidate(
+            name,
+            exe_path,
+            cmdline,
+            parent_chain=parent_chain,
+        ):
             return None
 
-        parent_name: str | None = None
-        parent_chain: tuple[str, ...] = ()
-        ppid = info.get("ppid")
-        if ppid:
-            parent_chain = _parent_names(int(ppid))
-            parent_name = parent_chain[0] if parent_chain else None
+        parent_name: str | None = parent_chain[0] if parent_chain else None
 
         via_msiexec = name == "msiexec.exe"
         msi_path = _extract_msi_path(cmdline_parts, cmdline) if via_msiexec else None

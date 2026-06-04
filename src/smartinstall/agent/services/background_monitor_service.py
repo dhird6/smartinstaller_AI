@@ -16,6 +16,7 @@ from smartinstall.agent.detection.installer_process_detector import (
 from smartinstall.agent.di.container import ServiceContainer
 from smartinstall.agent.infrastructure.event_bus import AgentEvent, EventBus
 from smartinstall.agent.intake.report_publisher import ReportPublisher
+from smartinstall.agent.monitoring.completion_notifications import build_completion_notification
 from smartinstall.agent.monitoring.monitoring_state_store import (
     ActiveInstallationState,
     CompletedInstallationState,
@@ -85,7 +86,6 @@ class BackgroundMonitorService:
             return
         self._event_bus.subscribe(AgentEvent.INSTALLER_LAUNCHED, self._on_installer_launched)
         self._event_bus.subscribe(AgentEvent.INSTALL_STAGE_CHANGED, self._on_stage)
-        self._event_bus.subscribe(AgentEvent.INSTALLATION_ERROR_DETECTED, self._on_error)
         self._handlers_attached = True
 
     def _run_loop(self) -> None:
@@ -173,13 +173,6 @@ class BackgroundMonitorService:
 
         session_id = ""
         try:
-            elevation_note = " (UAC elevated)" if detected.elevation_detected else ""
-            msi_note = " via msiexec" if detected.via_msiexec else ""
-            self._notifier.show_toast(
-                title="Installation Detected",
-                message=f"Monitoring {installer_path.name}{msi_note}{elevation_note}",
-            )
-
             result = self._agent.run_passive_monitoring(request, detected, monitor_pid=monitor_pid)
             if not result.success or result.value is None:
                 logger.warning("passive_monitor_failed", pid=detected.pid)
@@ -196,16 +189,23 @@ class BackgroundMonitorService:
 
             outcome = unified.status.installation_outcome
             error_summary = None
+            error_code = ""
+            error_message = ""
             if unified.errors:
                 err = unified.errors[0]
-                error_summary = f"{err.code}: {err.message}"
-                self._enqueue_error_notification(
-                    session_id=session_id,
-                    installer_name=installer_path.name,
-                    error_code=err.code,
-                    error_message=err.message,
-                    report_path=str(report_path),
-                )
+                error_code = err.code
+                error_message = err.message
+                error_summary = f"{error_code}: {error_message}"
+
+            self._enqueue_completion_notification(
+                session_id=session_id,
+                installer_name=installer_path.name,
+                outcome=outcome,
+                report_path=str(report_path),
+                has_errors=bool(unified.errors),
+                error_code=error_code,
+                error_message=error_message,
+            )
 
             self._state_store.remove_active(session_id)
             self._state_store.record_completed(
@@ -246,28 +246,41 @@ class BackgroundMonitorService:
         for key in expired:
             del self._cooldown_until[key]
 
-    def _enqueue_error_notification(
+    def _enqueue_completion_notification(
         self,
         *,
         session_id: str,
         installer_name: str,
+        outcome: str,
+        report_path: str,
+        has_errors: bool,
         error_code: str,
         error_message: str,
-        report_path: str,
     ) -> None:
-        payload = {
-            "sessionId": session_id,
-            "installerName": installer_name,
-            "errorCode": error_code,
-            "errorMessage": error_message,
-            "reportPath": report_path,
-            "suggestedFix": _suggest_fix(error_message),
-        }
+        suggested = _suggest_fix(error_message) if has_errors else ""
+        payload = build_completion_notification(
+            session_id=session_id,
+            installer_name=installer_name,
+            outcome=outcome,
+            report_path=report_path,
+            has_errors=has_errors,
+            mode="automatic",
+            error_code=error_code,
+            error_message=error_message,
+            suggested_fix=suggested,
+        )
         self._state_store.enqueue_notification(payload)
-        if self._config.enable_windows_notifications:
+        if not self._config.enable_windows_notifications:
+            return
+        if has_errors:
             self._notifier.show_installation_failed(
-                error_message=error_message,
-                suggested_fix=payload["suggestedFix"],
+                error_message=error_message or outcome,
+                suggested_fix=suggested,
+            )
+        else:
+            self._notifier.show_toast(
+                title="Installation Complete",
+                message=f"{installer_name} finished ({outcome}).",
             )
 
     def _on_installer_launched(self, event: AgentEvent, payload: dict) -> None:
@@ -303,16 +316,6 @@ class BackgroundMonitorService:
                 updated = True
         if updated:
             self._state_store.save(state)
-
-    def _on_error(self, event: AgentEvent, payload: dict) -> None:
-        if not self._config.enable_windows_notifications:
-            return
-        message = str(payload.get("message", "Installation error"))
-        self._notifier.show_installation_failed(
-            error_message=message,
-            suggested_fix=_suggest_fix(message),
-        )
-
 
 def _package_key(path: Path) -> str:
     return str(path.resolve()).lower()

@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject
 from PySide6.QtWidgets import QFileDialog, QWidget
 
 from smartinstall.agent.di.container import ServiceContainer
+from smartinstall.agent.monitoring.completion_notifications import build_completion_notification
 from smartinstall.agent.intake.installer_discovery import DiscoveredInstaller, InstallerDiscovery
 from smartinstall.agent.orchestration.automated_run_orchestrator import AutomatedRunResult
 from smartinstall.agent.slm.rag_engine import RagDiagnosisConfig, RagDiagnosisResult
@@ -38,9 +39,11 @@ class DesktopController(QObject):
 
         self.on_message: Callable[[ChatMessage], None] | None = None
         self.on_run_completed: Callable[[object], None] | None = None
+        self.on_installation_complete: Callable[[dict], None] | None = None
         self.on_slm_completed: Callable[[str, list[str]], None] | None = None
         self._last_slm_answer: str = ""
         self._last_slm_sources: list[str] = []
+        self._pending_completion: dict | None = None
 
         self._event_bridge.status_update.connect(self._emit_status)
 
@@ -51,6 +54,9 @@ class DesktopController(QObject):
     @property
     def is_busy(self) -> bool:
         return self._busy
+
+    def build_rag_config(self) -> RagDiagnosisConfig:
+        return self._build_rag_config()
 
     def show_welcome(self) -> None:
         self._emit(self._formatter.welcome())
@@ -178,9 +184,23 @@ class DesktopController(QObject):
         )
         if self.on_run_completed is not None:
             self.on_run_completed(run_result)
-        if self._config.auto_run_slm:
+
+        completion = build_completion_notification(
+            session_id=run_result.session.session_id,
+            installer_name=run_result.discovered.file_name,
+            outcome=run_result.report.status.installation_outcome,
+            report_path=str(run_result.report_path),
+            has_errors=bool(run_result.report.errors),
+            mode="manual",
+            error_code=run_result.report.errors[0].code if run_result.report.errors else "",
+            error_message=run_result.report.errors[0].message if run_result.report.errors else "",
+        )
+        if self._config.auto_run_slm and self._needs_slm_diagnosis(run_result):
+            self._pending_completion = completion
             self._start_slm(run_result.report_path)
         else:
+            if self.on_installation_complete is not None:
+                self.on_installation_complete(completion)
             self._set_busy(False)
 
     def _on_install_failed(self, message: str) -> None:
@@ -199,7 +219,13 @@ class DesktopController(QObject):
         self._last_slm_answer = diagnosis.answer
         self._last_slm_sources = list(diagnosis.sources)
         self._emit(self._formatter.slm_diagnosis(diagnosis.answer, diagnosis.sources))
-        if self.on_slm_completed is not None:
+        if self._pending_completion is not None:
+            self._pending_completion["slmAnswer"] = diagnosis.answer
+            self._pending_completion["slmSources"] = list(diagnosis.sources)
+            if self.on_installation_complete is not None:
+                self.on_installation_complete(self._pending_completion)
+            self._pending_completion = None
+        elif self.on_slm_completed is not None:
             self.on_slm_completed(diagnosis.answer, diagnosis.sources)
         self._set_busy(False)
 
@@ -210,7 +236,18 @@ class DesktopController(QObject):
                 "Ensure Ollama is running and required models are installed."
             )
         )
+        if self._pending_completion is not None:
+            if self.on_installation_complete is not None:
+                self.on_installation_complete(self._pending_completion)
+            self._pending_completion = None
         self._set_busy(False)
+
+    @staticmethod
+    def _needs_slm_diagnosis(run_result: AutomatedRunResult) -> bool:
+        outcome = run_result.report.status.installation_outcome.lower()
+        if outcome in {"failed", "failure", "error"}:
+            return True
+        return bool(run_result.report.errors)
 
     def _list_installers(self) -> None:
         names = [item.file_name for item in self._discovery.list_installers()]

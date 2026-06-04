@@ -19,16 +19,20 @@ from smartinstall.agent.detection.user_installation_policy import (
 )
 def test_classify_setup_exe(_mock_interactive: object) -> None:
     detector = InstallerProcessDetector()
-    result = detector._classify(  # noqa: SLF001
-        100,
-        {
-            "name": "setup.exe",
-            "exe": r"C:\Downloads\MyApp-setup.exe",
-            "cmdline": [r"C:\Downloads\MyApp-setup.exe", "/S"],
-            "ppid": os.getpid(),
-            "create_time": __import__("time").time(),
-        },
-    )
+    with patch(
+        "smartinstall.agent.detection.installer_process_detector._parent_names",
+        return_value=("explorer.exe",),
+    ):
+        result = detector._classify(  # noqa: SLF001
+            100,
+            {
+                "name": "setup.exe",
+                "exe": r"C:\Downloads\MyApp-setup.exe",
+                "cmdline": [r"C:\Downloads\MyApp-setup.exe", "/S"],
+                "ppid": 4001,
+                "create_time": __import__("time").time(),
+            },
+        )
     assert result is not None
     assert result.process_name == "setup.exe"
 
@@ -39,16 +43,20 @@ def test_classify_setup_exe(_mock_interactive: object) -> None:
 )
 def test_classify_msiexec(_mock_interactive: object) -> None:
     detector = InstallerProcessDetector()
-    result = detector._classify(  # noqa: SLF001
-        200,
-        {
-            "name": "msiexec.exe",
-            "exe": r"C:\Windows\System32\msiexec.exe",
-            "cmdline": ["msiexec.exe", "/i", r"C:\Downloads\product.msi"],
-            "ppid": os.getpid(),
-            "create_time": __import__("time").time(),
-        },
-    )
+    with patch(
+        "smartinstall.agent.detection.installer_process_detector._parent_names",
+        return_value=("explorer.exe",),
+    ):
+        result = detector._classify(  # noqa: SLF001
+            200,
+            {
+                "name": "msiexec.exe",
+                "exe": r"C:\Windows\System32\msiexec.exe",
+                "cmdline": ["msiexec.exe", "/i", r"C:\Downloads\product.msi"],
+                "ppid": 4002,
+                "create_time": __import__("time").time(),
+            },
+        )
     assert result is not None
 
 
@@ -66,12 +74,61 @@ def test_excludes_python() -> None:
     assert result is None
 
 
+@patch(
+    "smartinstall.agent.detection.user_installation_policy._is_interactive_user",
+    return_value=True,
+)
+def test_classify_generic_exe_launched_from_explorer(_mock_interactive: object) -> None:
+    detector = InstallerProcessDetector()
+    with patch(
+        "smartinstall.agent.detection.installer_process_detector._parent_names",
+        return_value=("explorer.exe",),
+    ):
+        result = detector._classify(  # noqa: SLF001
+            150,
+            {
+                "name": "myapp.exe",
+                "exe": r"D:\Projects\installers\myapp.exe",
+                "cmdline": [r"D:\Projects\installers\myapp.exe"],
+                "ppid": 4000,
+                "create_time": __import__("time").time(),
+            },
+        )
+    assert result is not None
+    assert result.installer_path is not None
+    assert result.installer_path.name == "myapp.exe"
+
+
 def test_msi_in_downloads_is_candidate() -> None:
     assert looks_like_user_installer_candidate(
         "msiexec.exe",
         Path(r"C:\Windows\System32\msiexec.exe"),
         r"msiexec /i C:\Downloads\vendor.msi",
+        parent_chain=("explorer.exe",),
     )
+
+
+@patch(
+    "smartinstall.agent.detection.user_installation_policy._is_interactive_user",
+    return_value=True,
+)
+def test_rejects_appdata_without_user_launch(_mock_interactive: object) -> None:
+    detector = InstallerProcessDetector()
+    with patch(
+        "smartinstall.agent.detection.installer_process_detector._parent_names",
+        return_value=("sihost.exe",),
+    ):
+        result = detector._classify(  # noqa: SLF001
+            160,
+            {
+                "name": "helper.exe",
+                "exe": r"C:\Users\Test\AppData\Local\SomeApp\helper.exe",
+                "cmdline": [r"C:\Users\Test\AppData\Local\SomeApp\helper.exe"],
+                "ppid": 5000,
+                "create_time": __import__("time").time(),
+            },
+        )
+    assert result is None
 
 
 @patch(

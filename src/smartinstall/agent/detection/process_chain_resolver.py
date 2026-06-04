@@ -22,7 +22,7 @@ _UAC_PARENT_NAMES = frozenset(
         "applicationframehost.exe",
     }
 )
-_SETUP_TOKENS = ("setup", "install", "update", "patch", "bootstrap", "deploy", "unins")
+_SETUP_TOKENS = ("setup", "install", "installer", "bootstrap", "deploy", "unins", "uninstall")
 _MAX_CHAIN_DEPTH = 16
 
 
@@ -113,7 +113,7 @@ def resolve_installer_chain(pid: int) -> ProcessChainContext | None:
             )
 
     exe_path = _path_from_chain_entry(anchor_pid, anchor_name, anchor_cmd)
-    if exe_path is None:
+    if exe_path is None or not _chain_entry_is_installer(anchor_name, anchor_cmd, exe_path):
         return None
 
     return ProcessChainContext(
@@ -176,7 +176,19 @@ def _find_setup_entry(
         if _MSI_PATH_RE.search(cmd) or ".exe" in cmd.lower():
             if any(token in cmd.lower() for token in _SETUP_TOKENS):
                 return entry
-    return chain[0] if chain else None
+    return None
+
+
+def _chain_entry_is_installer(name: str, cmdline: str | None, exe_path: Path) -> bool:
+    if exe_path.suffix.lower() == ".msi":
+        return True
+    stem = exe_path.stem.lower()
+    if any(token in stem for token in _SETUP_TOKENS):
+        return True
+    combined = f"{name} {cmdline or ''}".lower()
+    return any(token in combined for token in _SETUP_TOKENS) and (
+        ".exe" in combined or ".msi" in combined
+    )
 
 
 def _extract_msi_path(parts: list[str], cmdline: str | None) -> Path | None:

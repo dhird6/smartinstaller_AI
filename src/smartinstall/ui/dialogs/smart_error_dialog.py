@@ -31,6 +31,7 @@ class SmartErrorDialog(QDialog):
         suggested_solution: str,
         confidence: float,
         session_id: str,
+        slm_summary: str = "",
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -46,6 +47,7 @@ class SmartErrorDialog(QDialog):
             root_cause=root_cause,
             suggested_solution=suggested_solution,
             confidence=confidence,
+            slm_summary=slm_summary,
         )
 
     def _build_ui(
@@ -57,6 +59,7 @@ class SmartErrorDialog(QDialog):
         root_cause: str,
         suggested_solution: str,
         confidence: float,
+        slm_summary: str = "",
     ) -> None:
         p = self._palette
         layout = QVBoxLayout(self)
@@ -67,12 +70,16 @@ class SmartErrorDialog(QDialog):
         headline.setStyleSheet(heading_stylesheet(p, size_pt=14))
         layout.addWidget(headline)
 
-        for label_text, value in (
+        rows: list[tuple[str, str]] = [
             ("Error", f"{error_code}: {error_message}" if error_code else error_message),
             ("Possible cause", root_cause or "Under analysis"),
             ("Suggested solution", suggested_solution),
             ("Confidence", f"{int(confidence * 100)}%"),
-        ):
+        ]
+        if slm_summary.strip():
+            rows.insert(3, ("AI troubleshooting (SLM)", slm_summary.strip()[:1200]))
+
+        for label_text, value in rows:
             lbl = QLabel(f"<b>{label_text}</b>")
             lbl.setStyleSheet(body_stylesheet(p))
             val = QLabel(value)

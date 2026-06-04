@@ -24,7 +24,7 @@
   "installerLogSearchDepth": 6,
   "autoRunSlm": true,
   "autoMonitorEnabled": true,
-  "backgroundPollIntervalSeconds": 5,
+  "backgroundPollIntervalSeconds": 3,
   "autoMonitorMaxProcessAgeSeconds": 120,
   "autoMonitorCooldownSeconds": 600,
   "autoMonitorMaxConcurrent": 1,

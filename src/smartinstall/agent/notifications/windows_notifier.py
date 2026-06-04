@@ -11,6 +11,11 @@ from pathlib import Path
 
 import structlog
 
+from smartinstall.agent.notifications.win_app_id import (
+    WINDOWS_TOAST_APP_ID,
+    ensure_windows_toast_app_id,
+)
+
 logger = structlog.get_logger(__name__)
 
 _MAX_TOAST_FIELD = 240
@@ -22,6 +27,7 @@ class WindowsNotifier:
     def show_toast(self, *, title: str, message: str) -> None:
         if sys.platform != "win32":
             return
+        ensure_windows_toast_app_id()
         safe_title = _sanitize_toast_text(title)
         safe_message = _sanitize_toast_text(message)
         toast_xml = (
@@ -67,7 +73,7 @@ class WindowsNotifier:
                 f"$xml.LoadXml((Get-Content -LiteralPath '{xml_literal}' -Raw -Encoding UTF8)); "
                 "$toast = [Windows.UI.Notifications.ToastNotification]::new($xml); "
                 "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
-                "'SmartInstall AI').Show($toast);"
+                f"'{WINDOWS_TOAST_APP_ID}').Show($toast);"
             )
             subprocess.run(
                 ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],

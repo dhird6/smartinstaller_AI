@@ -102,6 +102,14 @@ _SYSTEM_PATH_MARKERS = (
 
 _SILENT_MSI_FLAGS = ("/qn", "/qb", "/quiet", "/passive", "-qn", "-quiet")
 
+# Paths where background apps commonly auto-update (not user double-click installs).
+_BACKGROUND_INSTALL_PATH_MARKERS = (
+    "\\program files\\",
+    "\\program files (x86)\\",
+    "\\appdata\\local\\programs\\",
+    "\\appdata\\roaming\\",
+)
+
 
 def evaluate_user_installation(
     *,
@@ -146,7 +154,7 @@ def evaluate_user_installation(
             return False, f"process too old ({int(age)}s)"
 
     if not _has_user_launch_signal(parent_chain, path_lower):
-        return False, "no user launch signal (Explorer/Downloads/Desktop)"
+        return False, "not launched by user (Explorer/browser/file manager)"
 
     return True, "user-initiated"
 
@@ -155,17 +163,27 @@ def looks_like_user_installer_candidate(
     process_name: str,
     exe_path: Path | None,
     command_line: str | None,
+    *,
+    parent_chain: tuple[str, ...] = (),
 ) -> bool:
     """Narrow pattern match before chain resolution (automatic mode only)."""
     name = process_name.lower()
     if name in _BACKGROUND_PROCESS_NAMES:
         return False
 
+    parents = {p.lower() for p in parent_chain}
+    user_launched = bool(parents.intersection(_USER_LAUNCH_PARENT_NAMES))
+
     if exe_path is not None and exe_path.suffix.lower() in {".exe", ".msi"}:
+        path_lower = str(exe_path).lower()
+        if _is_user_pickup_location(path_lower):
+            return user_launched
         stem_lower = exe_path.stem.lower()
         if any(token in stem_lower for token in _USER_INSTALLER_NAME_TOKENS):
-            return True
-        if exe_path.suffix.lower() == ".msi" and _is_user_content_path(str(exe_path).lower()):
+            return user_launched
+        if exe_path.suffix.lower() == ".msi":
+            return user_launched
+        if user_launched and _is_direct_user_launch(parent_chain):
             return True
 
     if name == "msiexec.exe":
@@ -174,14 +192,16 @@ def looks_like_user_installer_candidate(
             return False
         if ".msi" not in combined:
             return False
-        if _is_silent_msi(combined) and "explorer.exe" not in combined:
+        if _is_silent_msi(combined) and not user_launched:
             return False
-        return True
+        return user_launched
 
     combined = f"{name} {exe_path or ''} {command_line or ''}".lower()
     if not any(token in combined for token in _USER_INSTALLER_NAME_TOKENS):
         return False
-    return ".exe" in combined or ".msi" in combined
+    if ".exe" not in combined and ".msi" not in combined:
+        return False
+    return user_launched
 
 
 def _evaluate_msiexec(command_line: str | None, parent_chain: tuple[str, ...]) -> tuple[bool, str]:
@@ -225,30 +245,60 @@ def _chain_has_background_actor(parent_chain: tuple[str, ...], process_name: str
 
 
 def _has_user_launch_signal(parent_chain: tuple[str, ...], installer_path_lower: str) -> bool:
-    if _is_user_content_path(installer_path_lower):
-        return True
+    """Require a user shell launch and an installer-like target (not every background .exe)."""
     parents = {p.lower() for p in parent_chain}
-    if parents.intersection(_USER_LAUNCH_PARENT_NAMES):
+    if not parents.intersection(_USER_LAUNCH_PARENT_NAMES):
+        return False
+
+    if _is_background_install_path(installer_path_lower):
+        return False
+
+    if _is_direct_user_launch(parent_chain):
+        return installer_path_lower.endswith((".exe", ".msi"))
+
+    if _is_user_pickup_location(installer_path_lower):
         return True
+
+    if _has_installer_name_tokens(installer_path_lower):
+        return True
+
+    if installer_path_lower.endswith(".msi"):
+        return True
+
     return False
 
 
-def _is_user_content_path(path_lower: str) -> bool:
+def _is_direct_user_launch(parent_chain: tuple[str, ...]) -> bool:
+    if not parent_chain:
+        return False
+    return parent_chain[0].lower() in _USER_LAUNCH_PARENT_NAMES
+
+
+def _is_user_pickup_location(path_lower: str) -> bool:
+    """Downloads/Desktop/Documents/Temp only — not the entire user profile tree."""
     for root in _user_profile_roots():
         marker = str(root).lower()
-        if marker and marker in path_lower:
-            for sub in (
-                "\\downloads\\",
-                "\\desktop\\",
-                "\\documents\\",
-                "\\appdata\\local\\temp\\",
-                "\\temp\\",
-            ):
-                if sub in path_lower:
-                    return True
-            if path_lower.startswith(marker):
+        if not marker or marker not in path_lower:
+            continue
+        for sub in (
+            "\\downloads\\",
+            "\\desktop\\",
+            "\\documents\\",
+            "\\appdata\\local\\temp\\",
+            "\\temp\\",
+        ):
+            if sub in path_lower:
                 return True
     return False
+
+
+def _has_installer_name_tokens(path_lower: str) -> bool:
+    name = Path(path_lower).name.lower()
+    return any(token in name for token in _USER_INSTALLER_NAME_TOKENS)
+
+
+def _is_background_install_path(path_lower: str) -> bool:
+    return any(marker in path_lower for marker in _BACKGROUND_INSTALL_PATH_MARKERS)
 
 
 def _is_system_managed_path(path_lower: str) -> bool:

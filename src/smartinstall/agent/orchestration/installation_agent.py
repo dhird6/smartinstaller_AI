@@ -96,7 +96,13 @@ class InstallationAgent:
             self._transition(session.session_id, SessionStatus.INSTALLING)
             self._event_bus.publish(
                 AgentEvent.INSTALLER_LAUNCHED,
-                {"sessionId": session.session_id},
+                {
+                    "sessionId": session.session_id,
+                    "installerName": installer_path.name,
+                    "installerPath": str(installer_path),
+                    "mode": "manual",
+                    "startedAt": session.start_timestamp,
+                },
             )
 
             run_result = self._runner.run(

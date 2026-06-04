@@ -10,6 +10,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from smartinstall.agent.di.container import build_container
+from smartinstall.agent.notifications.win_app_id import ensure_windows_toast_app_id
 from smartinstall.agent.services.background_monitor_service import BackgroundMonitorService
 from smartinstall.agent.windows.auto_start import enable_auto_start, is_auto_start_enabled
 from smartinstall.ui.controllers.desktop_controller import DesktopController
@@ -22,6 +23,7 @@ from smartinstall.ui.theme.cctech_theme import apply_cctech_theme
 
 def run_desktop(config_path: Path | None = None, *, start_in_tray: bool = False) -> int:
     """Launch the SmartInstall AI enterprise desktop application."""
+    ensure_windows_toast_app_id()
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
@@ -75,6 +77,7 @@ def run_desktop(config_path: Path | None = None, *, start_in_tray: bool = False)
         shell.on_slm_completed(answer, sources)
 
     controller.on_run_completed = on_run_completed
+    controller.on_installation_complete = shell.handle_installation_complete
     controller.on_slm_completed = on_slm
 
     def _show_main() -> None:

@@ -14,7 +14,7 @@ class BackgroundSyncWorker(QThread):
     state_updated = Signal(object)
     notification_pending = Signal(object)
 
-    def __init__(self, service: BackgroundMonitorService, poll_ms: int = 2000) -> None:
+    def __init__(self, service: BackgroundMonitorService, poll_ms: int = 1000) -> None:
         super().__init__()
         self._service = service
         self._poll_ms = max(1000, poll_ms)

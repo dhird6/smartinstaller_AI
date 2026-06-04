@@ -113,7 +113,19 @@ class MonitoringStateStore:
         self.save(state)
 
     def enqueue_notification(self, notification: dict[str, Any]) -> None:
+        """Append a notification; replace prior entry for the same session + type."""
         state = self.load()
+        session_id = str(notification.get("sessionId", ""))
+        notification_type = str(notification.get("type", ""))
+        if session_id and notification_type:
+            state.pending_notifications = [
+                item
+                for item in state.pending_notifications
+                if not (
+                    str(item.get("sessionId", "")) == session_id
+                    and str(item.get("type", "")) == notification_type
+                )
+            ]
         state.pending_notifications.append(notification)
         self.save(state)
 

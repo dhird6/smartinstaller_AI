@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -79,7 +80,15 @@ class MonitoringStateStore:
             )
             try:
                 tmp.write_text(payload, encoding="utf-8")
-                tmp.replace(self._path)
+                # Retry replace — Windows denies if reader has the file open momentarily
+                for attempt in range(6):
+                    try:
+                        tmp.replace(self._path)
+                        break
+                    except PermissionError:
+                        if attempt == 5:
+                            raise
+                        time.sleep(0.05)
             finally:
                 try:
                     tmp.unlink(missing_ok=True)

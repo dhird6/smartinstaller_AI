@@ -47,8 +47,32 @@ class ProcessAttachRunner:
 
         try:
             root = psutil.Process(root_pid)
-        except psutil.NoSuchProcess as exc:
-            raise RuntimeError(f"Installer process {root_pid} is not running") from exc
+        except psutil.NoSuchProcess:
+            # Stub installers (e.g. web-downloaders) spawn a real child and exit
+            # immediately. By the time we attach, PID is already gone.
+            # Return a graceful result so post-snapshot evidence collection still runs.
+            logger.info("attach_target_already_exited", pid=root_pid)
+            stdout_path.write_text(
+                "Passive monitoring — installer process exited before attach.\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text("", encoding="utf-8")
+            return InstallerRunResult(
+                pid=root_pid,
+                parent_pid=0,
+                command_line=command_line,
+                start_timestamp=start_ts,
+                end_timestamp=_utc_now_iso(),
+                exit_code=None,
+                timed_out=False,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                stdout_line_count=1,
+                stderr_line_count=0,
+                stderr_high_priority_count=0,
+                msi_verbose_log_path=msi_log_path if installer_type == InstallerType.MSI else None,
+                launched_elevated=False,
+            )
 
         parent_pid = root.ppid()
         if process_collector is not None:

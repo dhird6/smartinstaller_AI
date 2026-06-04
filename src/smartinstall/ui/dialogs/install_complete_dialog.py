@@ -12,8 +12,8 @@ from smartinstall.ui.theme.cctech_theme import CCTechPalette, body_stylesheet, h
 class InstallCompleteDialog(QDialog):
     """Shown once when a monitored installation completes successfully."""
 
+    view_details = Signal()
     open_monitoring = Signal()
-    open_troubleshooting = Signal()
 
     def __init__(
         self,
@@ -22,53 +22,75 @@ class InstallCompleteDialog(QDialog):
         installer_name: str,
         outcome: str,
         report_path: str,
+        error_count: int = 0,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self._palette = palette
         self.setWindowTitle("Installation Complete")
         self.setModal(True)
-        self.resize(480, 240)
+        self.resize(520, 260)
         self._build_ui(
             installer_name=installer_name,
             outcome=outcome,
             report_path=report_path,
+            error_count=error_count,
         )
 
-    def _build_ui(self, *, installer_name: str, outcome: str, report_path: str) -> None:
+    def _build_ui(
+        self,
+        *,
+        installer_name: str,
+        outcome: str,
+        report_path: str,
+        error_count: int,
+    ) -> None:
         p = self._palette
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(12)
 
-        headline = QLabel("Installation finished")
+        success = error_count == 0 and outcome.lower() in {"success", "completed"}
+        if success:
+            headline = QLabel("Installation Completed Successfully")
+            body_text = (
+                f"<b>{installer_name}</b> finished successfully.<br>"
+                "Smart Installer monitored the installation and found no critical issues."
+            )
+        else:
+            headline = QLabel("Installation Completed With Issues")
+            body_text = (
+                f"<b>{installer_name}</b> finished with outcome: <b>{outcome}</b>.<br>"
+                f"Detected errors: <b>{error_count}</b><br>"
+                "AI recommendations are available in the dashboard."
+            )
+
         headline.setStyleSheet(heading_stylesheet(p, size_pt=14))
         layout.addWidget(headline)
 
-        body = QLabel(
-            f"<b>{installer_name}</b> completed with outcome: <b>{outcome}</b>."
-        )
+        body = QLabel(body_text)
         body.setTextFormat(Qt.TextFormat.RichText)
         body.setWordWrap(True)
         body.setStyleSheet(body_stylesheet(p))
         layout.addWidget(body)
 
-        report_lbl = QLabel(f"Report: {report_path}")
-        report_lbl.setWordWrap(True)
-        report_lbl.setStyleSheet(body_stylesheet(p))
-        layout.addWidget(report_lbl)
+        if report_path:
+            report_lbl = QLabel(f"Report: {report_path}")
+            report_lbl.setWordWrap(True)
+            report_lbl.setStyleSheet(body_stylesheet(p))
+            layout.addWidget(report_lbl)
 
         layout.addStretch(1)
         actions = QHBoxLayout()
         actions.addStretch(1)
-        dismiss = hero_outline_button("Dismiss", p, parent=self)
-        dismiss.clicked.connect(self.accept)
-        view = hero_primary_button("View Monitoring", p, parent=self)
-        view.clicked.connect(self._emit_open)
-        actions.addWidget(dismiss)
-        actions.addWidget(view)
+        close_btn = hero_outline_button("Close", p, parent=self)
+        close_btn.clicked.connect(self.accept)
+        details_btn = hero_primary_button("View Details", p, parent=self)
+        details_btn.clicked.connect(self._emit_details)
+        actions.addWidget(close_btn)
+        actions.addWidget(details_btn)
         layout.addLayout(actions)
 
-    def _emit_open(self) -> None:
-        self.open_monitoring.emit()
+    def _emit_details(self) -> None:
+        self.view_details.emit()
         self.accept()

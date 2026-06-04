@@ -124,6 +124,10 @@ class LiveLogViewer(QWidget):
         if self._auto_scroll:
             self._log_view.moveCursor(QTextCursor.MoveOperation.End)
 
+    def export_logs_dialog(self) -> None:
+        """Open save dialog and export the live log buffer."""
+        self._export_logs()
+
     def _export_logs(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
             self,

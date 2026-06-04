@@ -15,15 +15,15 @@ from PySide6.QtWidgets import (
 
 from smartinstall.agent.orchestration.automated_run_orchestrator import AutomatedRunResult
 from smartinstall.ui.components.ui_card import PAGE_MARGIN, PAGE_SPACING, apply_card_style
-from smartinstall.ui.services.slm_response_parser import parse_slm_sections
+from smartinstall.ui.services.slm_response_parser import partition_slm_answer
 from smartinstall.ui.theme.cctech_theme import CCTechPalette, body_stylesheet, heading_stylesheet, muted_stylesheet
 
-# (title, icon, accent, description)
+# (title, icon, semantic)
 _SECTIONS: tuple[tuple[str, str, str], ...] = (
-    ("Error logs & detection",                 "🔍", "error"),
-    ("Root cause analysis",                    "🧠", "warning"),
-    ("Similar incidents  ·  RAG retrieval",    "📚", "info"),
-    ("AI recommendations & resolution steps",  "🤖", "success"),
+    ("Error logs & detection", "🔍", "error"),
+    ("Root cause analysis", "🧠", "warning"),
+    ("Similar incidents  ·  RAG retrieval", "📚", "info"),
+    ("AI recommendations & resolution steps", "🤖", "success"),
 )
 
 
@@ -49,14 +49,12 @@ class TroubleshootingPage(QScrollArea):
 
         self._placeholder = QLabel(
             "Run an installation to populate failure analysis, root cause diagnosis, "
-            "vector-retrieved knowledge, and AI recommendations."
+            "vector-retrieved knowledge, and AI recommendations from SmartInstall AI."
         )
         self._placeholder.setWordWrap(True)
         self._placeholder.setStyleSheet(muted_stylesheet(palette) + " font-size: 11pt;")
         self._layout.addWidget(self._placeholder)
         self._layout.addStretch(1)
-
-    # ── Public API ─────────────────────────────────────────────────────────
 
     def apply_run_result(
         self,
@@ -64,7 +62,9 @@ class TroubleshootingPage(QScrollArea):
         *,
         slm_answer: str | None = None,
         slm_sources: list[str] | None = None,
+        slm_status: str = "none",
     ) -> None:
+        """Populate all troubleshooting sections from report + optional SLM output."""
         self._clear()
         if result is None:
             self._layout.addWidget(self._placeholder)
@@ -73,64 +73,152 @@ class TroubleshootingPage(QScrollArea):
 
         report = result.report
         p = self._palette
+        slm = partition_slm_answer(slm_answer or "")
+        sources = list(slm_sources or [])
+        outcome = report.status.installation_outcome
+        failed = outcome.lower() in {"failed", "failure", "error"} or bool(report.errors)
 
-        # Add a page heading
-        heading = QLabel("Failure Analysis")
+        page_title = "Installation Troubleshooting" if failed else "Installation Analysis"
+        heading = QLabel(page_title)
         heading.setStyleSheet(heading_stylesheet(p, size_pt=16))
+        self._layout.addWidget(heading)
+
         sub = QLabel(
             f"Installer: <b>{report.status.installer.installer_name}</b>"
-            f"  ·  Outcome: <b>{report.status.installation_outcome}</b>"
-            f"  ·  {len(report.errors)} error(s) detected"
+            f"  ·  Outcome: <b>{outcome}</b>"
+            f"  ·  {len(report.errors)} error(s) in report"
         )
+        sub.setTextFormat(Qt.TextFormat.RichText)
         sub.setWordWrap(True)
         sub.setStyleSheet(body_stylesheet(p))
-        self._layout.addWidget(heading)
         self._layout.addWidget(sub)
-        self._layout.addSpacing(4)
 
-        # Section 0 — errors
-        title0, icon0, sem0 = _SECTIONS[0]
-        errors_text = "\n".join(
-            f"• [{e.category}]  {e.code}: {e.message[:300]}"
-            for e in report.errors[:25]
-        ) or "No errors recorded in this session."
-        self._layout.addWidget(self._expandable(title0, errors_text, icon=icon0, semantic=sem0))
+        self._layout.addWidget(self._slm_status_banner(slm_status, slm_answer, failed))
 
-        # Section 1 — root cause
-        title1, icon1, sem1 = _SECTIONS[1]
-        root_cause = (
-            report.status.failure_reason
-            or "No explicit failure reason recorded — see AI analysis below."
+        meta = QLabel(
+            f"Session: {report.status.session_id}  ·  Report: {result.report_path}"
         )
-        self._layout.addWidget(self._expandable(title1, root_cause, icon=icon1, semantic=sem1))
+        meta.setWordWrap(True)
+        meta.setStyleSheet(muted_stylesheet(p))
+        self._layout.addWidget(meta)
+        self._layout.addSpacing(6)
 
-        # Section 2 — RAG sources
-        title2, icon2, sem2 = _SECTIONS[2]
+        # Section 0 — errors (report + SLM summary)
+        errors_lines: list[str] = []
+        if report.errors:
+            errors_lines.extend(
+                f"• [{e.category}]  {e.code}:  {e.message[:500]}"
+                for e in report.errors[:25]
+            )
+        if slm.error_summary:
+            errors_lines.append("")
+            errors_lines.append("From AI error summary:")
+            errors_lines.append(slm.error_summary)
+        errors_text = "\n".join(errors_lines) or (
+            "No errors recorded in this session."
+            if not failed
+            else "No structured errors in the report — see AI analysis below."
+        )
+        self._layout.addWidget(
+            self._expandable(_SECTIONS[0][0], errors_text, icon=_SECTIONS[0][1], semantic=_SECTIONS[0][2])
+        )
+
+        # Section 1 — root cause (SLM preferred)
+        root_cause = (
+            slm.root_cause
+            or report.status.failure_reason
+            or (
+                "No explicit failure reason in the report."
+                if failed
+                else "Installation completed without a recorded failure reason."
+            )
+        )
+        self._layout.addWidget(
+            self._expandable(_SECTIONS[1][0], root_cause, icon=_SECTIONS[1][1], semantic=_SECTIONS[1][2])
+        )
+
+        # Section 2 — RAG
         rag_lines: list[str] = []
-        if slm_sources:
-            rag_lines.append("Retrieved knowledge documents:\n")
-            rag_lines.extend(f"  •  {src}" for src in slm_sources)
+        if sources:
+            rag_lines.append("Retrieved knowledge documents:")
+            rag_lines.extend(f"  •  {src}" for src in sources)
+            rag_lines.append("")
+        else:
+            rag_lines.append(
+                "No RAG document sources returned yet. "
+                "Sources appear after local SLM diagnosis (Ollama + rag_docs/)."
+            )
             rag_lines.append("")
         rag_lines.append(
             f"Evidence collected:  {len(report.evidence.event_logs)} event log(s)  ·  "
             f"{len(report.evidence.installer_log_files)} installer log(s)  ·  "
-            f"{len(report.evidence.registry_changes)} registry change(s)"
+            f"{len(report.evidence.registry_changes)} registry change(s)  ·  "
+            f"{len(report.evidence.filesystem_changes)} filesystem change(s)"
         )
         self._layout.addWidget(
-            self._expandable(title2, "\n".join(rag_lines), icon=icon2, semantic=sem2)
+            self._expandable(
+                _SECTIONS[2][0],
+                "\n".join(rag_lines),
+                icon=_SECTIONS[2][1],
+                semantic=_SECTIONS[2][2],
+            )
         )
 
-        # Section 3 — AI fix
-        title3, icon3, sem3 = _SECTIONS[3]
-        fix_body = slm_answer or "AI diagnosis pending — ensure Ollama is running locally."
-        sections = parse_slm_sections(fix_body)
-        if sections:
-            fix_body = "\n\n".join(f"{s.heading}\n{s.body}" for s in sections)
-        self._layout.addWidget(self._expandable(title3, fix_body, icon=icon3, semantic=sem3))
+        # Section 3 — AI recommendations (always show full SLM when available)
+        ai_body = _format_ai_section(slm, slm_status=slm_status, failed=failed)
+        self._layout.addWidget(
+            self._expandable(
+                _SECTIONS[3][0],
+                ai_body,
+                icon=_SECTIONS[3][1],
+                semantic=_SECTIONS[3][2],
+                expanded=True,
+            )
+        )
 
         self._layout.addStretch(1)
+        self.verticalScrollBar().setValue(0)
 
-    # ── Card builder ────────────────────────────────────────────────────────
+    def _slm_status_banner(
+        self,
+        slm_status: str,
+        slm_answer: str | None,
+        failed: bool,
+    ) -> QFrame:
+        p = self._palette
+        banner = QFrame()
+        banner.setObjectName("slmBanner")
+        if slm_answer and slm_answer.strip():
+            bg = p.success_bg
+            border = p.success
+            text = "AI diagnosis complete — recommendations are shown below."
+        elif slm_status == "running":
+            bg = p.info_bg
+            border = p.info
+            text = "Running local AI troubleshooting (Ollama SLM)…"
+        elif failed:
+            bg = p.warning_bg
+            border = p.warning
+            text = (
+                "AI diagnosis pending. Ensure Ollama is running with phi3:mini and "
+                "nomic-embed-text, and autoRunSlm is enabled in config."
+            )
+        else:
+            bg = p.surface_muted
+            border = p.border
+            text = "No AI diagnosis required for this successful installation."
+
+        banner.setStyleSheet(
+            f"QFrame#slmBanner {{ background: {bg}; border: 1px solid {border};"
+            f" border-radius: 8px; padding: 4px; }}"
+        )
+        layout = QVBoxLayout(banner)
+        layout.setContentsMargins(12, 10, 12, 10)
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(body_stylesheet(p))
+        layout.addWidget(lbl)
+        return banner
 
     def _expandable(
         self,
@@ -139,18 +227,19 @@ class TroubleshootingPage(QScrollArea):
         *,
         icon: str = "▸",
         semantic: str = "info",
+        expanded: bool = True,
     ) -> QFrame:
         p = self._palette
         accent_map = {
-            "error":   p.error,
+            "error": p.error,
             "warning": p.warning,
-            "info":    p.info,
+            "info": p.info,
             "success": p.success,
         }
         bg_map = {
-            "error":   p.error_bg,
+            "error": p.error_bg,
             "warning": p.warning_bg,
-            "info":    p.info_bg,
+            "info": p.info_bg,
             "success": p.success_bg,
         }
         accent = accent_map.get(semantic, p.info)
@@ -163,14 +252,11 @@ class TroubleshootingPage(QScrollArea):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        # ── Header ──────────────────────────────────────────────────────────
         hdr = QFrame()
-        hdr.setObjectName("tshootHdr")
         hdr_layout = QHBoxLayout(hdr)
         hdr_layout.setContentsMargins(16, 14, 16, 14)
         hdr_layout.setSpacing(12)
 
-        # Icon badge
         icon_badge = QLabel(icon)
         icon_badge.setFixedSize(32, 32)
         icon_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -184,8 +270,8 @@ class TroubleshootingPage(QScrollArea):
         toggle = QToolButton()
         toggle.setObjectName("tshootToggle")
         toggle.setCheckable(True)
-        toggle.setChecked(True)
-        toggle.setText("▾")
+        toggle.setChecked(expanded)
+        toggle.setText("▾" if expanded else "▸")
         toggle.setStyleSheet(
             f"QToolButton#tshootToggle {{ color: {p.text_muted}; font-size: 13pt;"
             f" font-weight: 700; background: transparent; border: none; padding: 0; }}"
@@ -197,24 +283,25 @@ class TroubleshootingPage(QScrollArea):
         hdr_layout.addWidget(toggle, alignment=Qt.AlignmentFlag.AlignVCenter)
         root_layout.addWidget(hdr)
 
-        # ── Separator ────────────────────────────────────────────────────────
         sep = QFrame()
         sep.setFixedHeight(1)
         sep.setStyleSheet(f"background: {p.border}; margin: 0 16px;")
         root_layout.addWidget(sep)
 
-        # ── Body ─────────────────────────────────────────────────────────────
         body_widget = QWidget()
         body_layout = QVBoxLayout(body_widget)
         body_layout.setContentsMargins(16, 14, 16, 18)
         body_lbl = QLabel(body)
         body_lbl.setWordWrap(True)
         body_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        body_lbl.setStyleSheet(body_stylesheet(p))
+        body_lbl.setStyleSheet(body_stylesheet(p) + " font-size: 10.5pt; line-height: 1.45;")
+        body_lbl.setMinimumHeight(48)
         body_layout.addWidget(body_lbl)
         root_layout.addWidget(body_widget)
 
-        # Toggle logic
+        body_widget.setVisible(expanded)
+        sep.setVisible(expanded)
+
         def _toggle(checked: bool) -> None:
             body_widget.setVisible(checked)
             sep.setVisible(checked)
@@ -237,3 +324,39 @@ class TroubleshootingPage(QScrollArea):
             item = self._layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+
+
+def _format_ai_section(slm: object, *, slm_status: str, failed: bool) -> str:
+    from smartinstall.ui.services.slm_response_parser import SlmPartition
+
+    if not isinstance(slm, SlmPartition):
+        return "AI diagnosis unavailable."
+
+    if slm_status == "running":
+        return (
+            "SmartInstall AI is querying the local SLM (Phi-3 via Ollama) and RAG knowledge base.\n"
+            "This section will update automatically when diagnosis completes."
+        )
+
+    if not slm.full_text:
+        if failed:
+            return (
+                "No AI response yet.\n\n"
+                "Checklist:\n"
+                "• Ollama is running (ollama serve)\n"
+                "• Models installed: phi3:mini, nomic-embed-text\n"
+                "• autoRunSlm is true in smartinstall.config.json\n"
+                "• Installation produced errors or a failed outcome"
+            )
+        return "Installation succeeded — AI troubleshooting was not required."
+
+    parts: list[str] = []
+    if slm.recommended_fix:
+        parts.append("Recommended steps:\n" + slm.recommended_fix)
+    if slm.recommended_fix and slm.full_text != slm.recommended_fix:
+        parts.append("")
+        parts.append("Full AI response:\n" + slm.full_text)
+    else:
+        parts.append(slm.full_text)
+
+    return "\n".join(parts).strip()

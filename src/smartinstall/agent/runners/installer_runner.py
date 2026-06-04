@@ -7,6 +7,7 @@ import shlex
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -74,6 +75,9 @@ class InstallerRunner:
         timeout_seconds: int,
         process_collector: ProcessCollector | None = None,
         event_collector: EventLogCollector | None = None,
+        on_log_line: Callable[[str], None] | None = None,
+        on_stage: Callable[[str], None] | None = None,
+        on_install_error: Callable[[str, str], None] | None = None,
     ) -> InstallerRunResult:
         session_directory.mkdir(parents=True, exist_ok=True)
         stdout_path = session_directory / "stdout.log"
@@ -115,6 +119,9 @@ class InstallerRunner:
                 timeout_seconds=timeout_seconds,
                 process_collector=process_collector,
                 event_collector=event_collector,
+                on_log_line=on_log_line,
+                on_stage=on_stage,
+                on_install_error=on_install_error,
             )
 
         try:
@@ -131,6 +138,9 @@ class InstallerRunner:
                 timeout_seconds=timeout_seconds,
                 process_collector=process_collector,
                 event_collector=event_collector,
+                on_log_line=on_log_line,
+                on_stage=on_stage,
+                on_install_error=on_install_error,
             )
         except OSError as exc:
             if getattr(exc, "winerror", None) != _WIN_ERROR_ELEVATION_REQUIRED:
@@ -155,6 +165,9 @@ class InstallerRunner:
                 timeout_seconds=timeout_seconds,
                 process_collector=process_collector,
                 event_collector=event_collector,
+                on_log_line=on_log_line,
+                on_stage=on_stage,
+                on_install_error=on_install_error,
             )
 
     def _run_standard(
@@ -172,9 +185,18 @@ class InstallerRunner:
         timeout_seconds: int,
         process_collector: ProcessCollector | None,
         event_collector: EventLogCollector | None,
+        on_log_line: Callable[[str], None] | None,
+        on_stage: Callable[[str], None] | None,
+        on_install_error: Callable[[str, str], None] | None,
     ) -> InstallerRunResult:
         stdout_capture = _StreamCapture()
         stderr_capture = _StreamCapture()
+
+        if on_stage is not None:
+            on_stage("Launching installer")
+        if on_log_line is not None:
+            on_log_line("Launching installer…")
+            on_log_line("Initializing setup…")
 
         process = subprocess.Popen(
             command,
@@ -195,6 +217,17 @@ class InstallerRunner:
                 offset = time.monotonic()
                 stamped = f"[+{offset:.3f}s] {line.rstrip()}\n"
                 capture.append(stamped, is_stderr=is_stderr)
+                plain = line.rstrip()
+                if on_log_line is not None and plain:
+                    prefix = "stderr" if is_stderr else "stdout"
+                    on_log_line(f"[{prefix}] {plain}")
+                if (
+                    is_stderr
+                    and on_install_error is not None
+                    and plain
+                    and any(k in plain.lower() for k in _HIGH_PRIORITY_STDERR)
+                ):
+                    on_install_error("STDERR_ERROR", plain[:500])
             stream.close()
 
         threads = [
@@ -223,12 +256,37 @@ class InstallerRunner:
             while not stop_sampling.is_set():
                 if process_collector is not None:
                     process_collector.sample()
+                    if on_log_line is not None:
+                        for snap in process_collector.drain_recent_snapshots(2):
+                            on_log_line(
+                                f"[process] {snap.process_name} (pid={snap.process_id}) "
+                                f"CPU={snap.cpu_percent}% MEM={snap.memory_mb:.1f}MB"
+                            )
                 if event_collector is not None:
                     event_collector.poll_live()
+                    if on_log_line is not None:
+                        for entry in event_collector.drain_live_entries(3):
+                            on_log_line(
+                                f"[event:{entry.log_name}] {entry.level}: {entry.message[:200]}"
+                            )
+                            if (
+                                on_install_error is not None
+                                and entry.level in {"Error", "Critical"}
+                            ):
+                                on_install_error(
+                                    f"EVENT_{entry.event_id}",
+                                    entry.message[:500],
+                                )
                 time.sleep(2.0)
 
         sampler_thread = threading.Thread(target=sampler, daemon=True)
         sampler_thread.start()
+
+        if on_stage is not None:
+            on_stage("Running installer")
+        if on_log_line is not None:
+            on_log_line("Checking prerequisites…")
+            on_log_line(f"Installer process started (pid={process.pid})")
 
         timed_out = False
         try:
@@ -288,11 +346,20 @@ class InstallerRunner:
         timeout_seconds: int,
         process_collector: ProcessCollector | None,
         event_collector: EventLogCollector | None,
+        on_log_line: Callable[[str], None] | None,
+        on_stage: Callable[[str], None] | None,
+        on_install_error: Callable[[str, str], None] | None,
     ) -> InstallerRunResult:
         from smartinstall.agent.runners.windows_elevated_runner import (
             run_elevated,
             write_elevated_stream_placeholders,
         )
+
+        if on_stage is not None:
+            on_stage("Launching installer (elevated)")
+        if on_log_line is not None:
+            on_log_line("Launching installer with UAC elevation…")
+            on_log_line("Initializing elevated setup…")
 
         write_elevated_stream_placeholders(stdout_path, stderr_path)
 
@@ -302,12 +369,34 @@ class InstallerRunner:
             while not stop_sampling.is_set():
                 if process_collector is not None:
                     process_collector.sample()
+                    if on_log_line is not None:
+                        for snap in process_collector.drain_recent_snapshots(2):
+                            on_log_line(
+                                f"[process] {snap.process_name} (pid={snap.process_id}) "
+                                f"CPU={snap.cpu_percent}% MEM={snap.memory_mb:.1f}MB"
+                            )
                 if event_collector is not None:
                     event_collector.poll_live()
+                    if on_log_line is not None:
+                        for entry in event_collector.drain_live_entries(3):
+                            on_log_line(
+                                f"[event:{entry.log_name}] {entry.level}: {entry.message[:200]}"
+                            )
+                            if (
+                                on_install_error is not None
+                                and entry.level in {"Error", "Critical"}
+                            ):
+                                on_install_error(
+                                    f"EVENT_{entry.event_id}",
+                                    entry.message[:500],
+                                )
                 time.sleep(2.0)
 
         sampler_thread = threading.Thread(target=sampler, daemon=True)
         sampler_thread.start()
+
+        if on_stage is not None:
+            on_stage("Running installer (elevated)")
 
         try:
             exit_code, pid, timed_out = run_elevated(

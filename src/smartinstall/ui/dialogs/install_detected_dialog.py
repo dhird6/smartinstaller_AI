@@ -40,14 +40,15 @@ class InstallDetectedDialog(QDialog):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(12)
 
-        headline = QLabel("Live monitoring is active")
+        headline = QLabel("Installation monitoring started")
         headline.setStyleSheet(heading_stylesheet(p, size_pt=14))
         layout.addWidget(headline)
 
         body = QLabel(
-            "SmartInstall AI is now <b>live monitoring</b> your installation. "
+            "Smart Installer has detected an installation process and is now "
+            "<b>monitoring the installation in real time</b>. "
             f"Installer: <b>{installer_name}</b><br>"
-            "Process logs, registry changes, and evidence are being captured in real time."
+            "Process logs, registry changes, and evidence are being captured automatically."
         )
         body.setTextFormat(Qt.TextFormat.RichText)
         body.setWordWrap(True)
@@ -67,9 +68,9 @@ class InstallDetectedDialog(QDialog):
         layout.addStretch(1)
         actions = QHBoxLayout()
         actions.addStretch(1)
-        dismiss = hero_outline_button("Continue in background", p, parent=self)
+        dismiss = hero_outline_button("Continue", p, parent=self)
         dismiss.clicked.connect(self.reject)
-        view = hero_primary_button("View Live Monitoring", p, parent=self)
+        view = hero_primary_button("View Monitoring", p, parent=self)
         view.clicked.connect(self._open_monitoring)
         actions.addWidget(dismiss)
         actions.addWidget(view)

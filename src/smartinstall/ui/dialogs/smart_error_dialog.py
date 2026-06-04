@@ -19,6 +19,8 @@ class SmartErrorDialog(QDialog):
     """Modal popup with AI-oriented troubleshooting summary."""
 
     open_dashboard = Signal(str)
+    view_details = Signal()
+    open_troubleshooting = Signal()
 
     def __init__(
         self,
@@ -66,7 +68,7 @@ class SmartErrorDialog(QDialog):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(14)
 
-        headline = QLabel("Installation Error Detected")
+        headline = QLabel("Installation Completed With Issues")
         headline.setStyleSheet(heading_stylesheet(p, size_pt=14))
         layout.addWidget(headline)
 
@@ -91,14 +93,19 @@ class SmartErrorDialog(QDialog):
         layout.addStretch(1)
         actions = QHBoxLayout()
         actions.addStretch(1)
-        dismiss = hero_outline_button("Dismiss", p, parent=self)
-        dismiss.clicked.connect(self.reject)
-        open_btn = hero_primary_button("Open Smart Installer Dashboard", p, parent=self)
-        open_btn.clicked.connect(self._emit_open)
-        actions.addWidget(dismiss)
-        actions.addWidget(open_btn)
+        details_btn = hero_outline_button("View Details", p, parent=self)
+        details_btn.clicked.connect(self._emit_details)
+        ts_btn = hero_primary_button("Open Troubleshooting", p, parent=self)
+        ts_btn.clicked.connect(self._emit_troubleshooting)
+        actions.addWidget(details_btn)
+        actions.addWidget(ts_btn)
         layout.addLayout(actions)
 
-    def _emit_open(self) -> None:
+    def _emit_details(self) -> None:
+        self.view_details.emit()
+        self.accept()
+
+    def _emit_troubleshooting(self) -> None:
+        self.open_troubleshooting.emit()
         self.open_dashboard.emit(self._session_id)
         self.accept()

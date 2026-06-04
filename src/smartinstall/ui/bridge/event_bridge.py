@@ -82,6 +82,9 @@ class QtEventBridge(QObject):
                 {
                     "installerName": str(name),
                     "sessionId": str(payload.get("sessionId", "")),
+                    "installerPath": str(payload.get("installerPath", "")),
+                    "pid": int(payload.get("pid", 0) or 0),
+                    "startedAt": str(payload.get("startedAt", "")),
                     "mode": "automatic",
                     "detail": detail,
                 }
@@ -95,6 +98,9 @@ class QtEventBridge(QObject):
                     {
                         "installerName": name,
                         "sessionId": str(payload.get("sessionId", "")),
+                        "installerPath": str(payload.get("installerPath", "")),
+                        "pid": int(payload.get("pid", 0) or 0),
+                        "startedAt": str(payload.get("startedAt", "")),
                         "mode": mode,
                         "detail": _map_event_to_message(event, payload) or "",
                     }

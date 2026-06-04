@@ -24,8 +24,10 @@ class InstallWorkflowWorker(QThread):
         product_name: str | None = None,
         additional_args: str | None = None,
         timeout_seconds: int | None = None,
+        parent=None,
     ) -> None:
-        super().__init__()
+        super().__init__(parent)
+        self.setObjectName("InstallWorkflowWorker")
         self._container = container
         self._event_bridge = event_bridge
         self._installer_name = installer_name

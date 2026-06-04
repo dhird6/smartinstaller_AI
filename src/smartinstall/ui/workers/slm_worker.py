@@ -15,8 +15,15 @@ class SlmDiagnosisWorker(QThread):
     succeeded = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, report_path: Path, config: RagDiagnosisConfig) -> None:
-        super().__init__()
+    def __init__(
+        self,
+        report_path: Path,
+        config: RagDiagnosisConfig,
+        *,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("SlmDiagnosisWorker")
         self._report_path = report_path
         self._config = config
 

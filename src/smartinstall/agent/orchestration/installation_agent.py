@@ -85,8 +85,33 @@ class InstallationAgent:
         )
         collection_errors: list[str] = []
 
+        def _emit_stage(stage: str) -> None:
+            self._event_bus.publish(
+                AgentEvent.INSTALL_STAGE_CHANGED,
+                {"sessionId": session.session_id, "stage": stage},
+            )
+
+        def _emit_log(line: str) -> None:
+            self._event_bus.publish(
+                AgentEvent.LIVE_LOG_LINE,
+                {"sessionId": session.session_id, "line": line},
+            )
+
+        def _emit_live_error(code: str, message: str) -> None:
+            self._event_bus.publish(
+                AgentEvent.INSTALLATION_ERROR_DETECTED,
+                {
+                    "sessionId": session.session_id,
+                    "code": code,
+                    "message": message,
+                    "category": "live",
+                },
+            )
+
         try:
             self._transition(session.session_id, SessionStatus.PRE_SNAPSHOTTING)
+            _emit_stage("Pre-snapshot")
+            _emit_log("Preparing installation monitoring…")
             event_collector.mark_session_start()
             installer_log_collector.mark_session_start()
             registry_collector.take_pre_snapshot()
@@ -101,6 +126,7 @@ class InstallationAgent:
                     "installerName": installer_path.name,
                     "installerPath": str(installer_path),
                     "mode": "manual",
+                    "pid": 0,
                     "startedAt": session.start_timestamp,
                 },
             )
@@ -113,6 +139,9 @@ class InstallationAgent:
                 timeout_seconds=timeout,
                 process_collector=process_collector,
                 event_collector=event_collector,
+                on_log_line=_emit_log,
+                on_stage=_emit_stage,
+                on_install_error=_emit_live_error,
             )
 
             result = self._complete_monitored_run(
@@ -190,6 +219,8 @@ class InstallationAgent:
                 "sessionId": session.session_id,
                 "pid": attach_pid,
                 "installerName": installer_path.name,
+                "installerPath": str(installer_path),
+                "startedAt": session.start_timestamp,
                 "elevationDetected": detected.elevation_detected,
                 "viaMsiexec": detected.via_msiexec,
                 "chainSummary": detected.chain_summary,

@@ -67,6 +67,8 @@ class DashboardPage(QScrollArea):
         self._active_host.setSpacing(CARD_INNER_SPACING - 4)
         self._system_status_label = QLabel()
         self._monitoring_status_label = QLabel()
+        self._ai_recommendations_host = QVBoxLayout()
+        self._ai_recommendations_host.setSpacing(CARD_INNER_SPACING - 4)
         self._build_static()
 
     def _build_static(self) -> None:
@@ -194,20 +196,13 @@ class DashboardPage(QScrollArea):
         ai_heading = QLabel("AI highlights")
         ai_heading.setStyleSheet(heading_stylesheet(p, size_pt=12))
         ai_layout.addWidget(ai_heading)
-        for body_text in (
-            "Autonomous error aggregation from event logs and installer output.",
-            "Vector-based retrieval of similar incidents from the knowledge base.",
-            "Structured remediation steps with expandable fix workflows.",
-        ):
-            lbl = QLabel(f"•  {body_text}")
-            lbl.setWordWrap(True)
-            lbl.setStyleSheet(body_stylesheet(p))
-            ai_layout.addWidget(lbl)
+        ai_layout.addLayout(self._ai_recommendations_host)
         ai_layout.addStretch(1)
 
         layout.addWidget(active_card, stretch=1)
         layout.addWidget(sessions_card, stretch=1)
         layout.addWidget(status_card, stretch=1)
+        layout.addWidget(ai_card, stretch=1)
         return row
 
     def _build_benefits(self) -> QFrame:
@@ -396,6 +391,16 @@ class DashboardPage(QScrollArea):
             f"<b style='color:{p.text_primary}'>Monitoring</b><br/>"
             f"{monitor_line}<br/>{auto_line}{heartbeat}"
         )
+
+        self._clear_layout(self._ai_recommendations_host)
+        recommendations = stats.ai_recommendations or [
+            "Launch installers from Explorer for automatic monitoring, or use Installation Center.",
+        ]
+        for body_text in recommendations:
+            lbl = QLabel(f"•  {body_text}")
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet(body_stylesheet(p))
+            self._ai_recommendations_host.addWidget(lbl)
 
     @staticmethod
     def _clear_layout(layout: QVBoxLayout) -> None:

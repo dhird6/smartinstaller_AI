@@ -21,6 +21,7 @@ from smartinstall.ui.models.chat_message import ChatMessage
 from smartinstall.ui.services.chat_formatter import ChatFormatter
 from smartinstall.ui.workers.install_worker import InstallWorkflowWorker
 from smartinstall.ui.workers.slm_worker import SlmDiagnosisWorker
+from smartinstall.ui.workers.thread_lifecycle import stop_qthread, wire_worker_lifetime
 
 
 class DesktopController(QObject):
@@ -151,25 +152,41 @@ class DesktopController(QObject):
         )
         self._start_install_worker(installer_path=installer_path.resolve())
 
+    def shutdown_workers(self, *, wait_ms: int = 30_000) -> None:
+        """Stop install and SLM threads before application exit."""
+        stop_qthread(self._install_worker, wait_ms=wait_ms)
+        stop_qthread(self._slm_worker, wait_ms=wait_ms)
+        self._install_worker = None
+        self._slm_worker = None
+
     def _start_install_worker(
         self,
         *,
         installer_name: str | None = None,
         installer_path: Path | None = None,
     ) -> None:
+        stop_qthread(self._install_worker, wait_ms=5_000)
+        stop_qthread(self._slm_worker, wait_ms=5_000)
+
         if installer_path is not None:
             self._install_worker = _ExplicitPathInstallWorker(
                 self._container,
                 self._event_bridge,
                 installer_path=installer_path,
+                parent=self,
             )
         else:
             self._install_worker = InstallWorkflowWorker(
                 self._container,
                 self._event_bridge,
                 installer_name=installer_name,
+                parent=self,
             )
 
+        wire_worker_lifetime(
+            self._install_worker,
+            on_finished=lambda: setattr(self, "_install_worker", None),
+        )
         self._install_worker.succeeded.connect(self._on_install_succeeded)
         self._install_worker.failed.connect(self._on_install_failed)
         self._install_worker.start()
@@ -185,6 +202,9 @@ class DesktopController(QObject):
         if self.on_run_completed is not None:
             self.on_run_completed(run_result)
 
+        err_message = (
+            run_result.report.errors[0].message if run_result.report.errors else ""
+        )
         completion = build_completion_notification(
             session_id=run_result.session.session_id,
             installer_name=run_result.discovered.file_name,
@@ -193,7 +213,8 @@ class DesktopController(QObject):
             has_errors=bool(run_result.report.errors),
             mode="manual",
             error_code=run_result.report.errors[0].code if run_result.report.errors else "",
-            error_message=run_result.report.errors[0].message if run_result.report.errors else "",
+            error_message=err_message,
+            suggested_fix=_suggest_fix_from_error_message(err_message) if err_message else "",
         )
         if self._config.auto_run_slm and self._needs_slm_diagnosis(run_result):
             self._pending_completion = completion
@@ -209,7 +230,16 @@ class DesktopController(QObject):
 
     def _start_slm(self, report_path: Path) -> None:
         self._emit(self._formatter.status_update("Running local AI troubleshooting..."))
-        self._slm_worker = SlmDiagnosisWorker(report_path, self._build_rag_config())
+        stop_qthread(self._slm_worker, wait_ms=5_000)
+        self._slm_worker = SlmDiagnosisWorker(
+            report_path,
+            self._build_rag_config(),
+            parent=self,
+        )
+        wire_worker_lifetime(
+            self._slm_worker,
+            on_finished=lambda: setattr(self, "_slm_worker", None),
+        )
         self._slm_worker.succeeded.connect(self._on_slm_succeeded)
         self._slm_worker.failed.connect(self._on_slm_failed)
         self._slm_worker.start()
@@ -272,6 +302,19 @@ class DesktopController(QObject):
         )
 
 
+def _suggest_fix_from_error_message(message: str) -> str:
+    lowered = message.lower()
+    if "access denied" in lowered:
+        return "Run installer as Administrator."
+    if "visual c++" in lowered or "vcruntime" in lowered:
+        return "Install Microsoft Visual C++ Redistributable."
+    if ".net" in lowered:
+        return "Install required .NET Framework runtime."
+    if "1618" in lowered:
+        return "Wait for other MSI operations to complete, then retry."
+    return "Open Troubleshooting for full AI analysis."
+
+
 class _ExplicitPathInstallWorker(InstallWorkflowWorker):
     """Install worker for explicit installer paths outside installers/."""
 
@@ -281,8 +324,9 @@ class _ExplicitPathInstallWorker(InstallWorkflowWorker):
         event_bridge: QtEventBridge,
         *,
         installer_path: Path,
+        parent=None,
     ) -> None:
-        super().__init__(container, event_bridge)
+        super().__init__(container, event_bridge, parent=parent)
         self._installer_path = installer_path
 
     def run(self) -> None:

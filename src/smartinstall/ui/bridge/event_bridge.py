@@ -17,6 +17,8 @@ class QtEventBridge(QObject):
     stage_changed = Signal(str)
     installation_detected = Signal(str)
     installation_error = Signal(dict)
+    slm_diagnosis_ready = Signal(dict)
+    monitoring_started = Signal(str)
 
     def __init__(self, event_bus: EventBus) -> None:
         super().__init__()
@@ -50,8 +52,9 @@ class QtEventBridge(QObject):
                 self.status_update.emit(str(stage))
             return
         if event is AgentEvent.INSTALLER_DETECTED:
-            name = payload.get("installerName", "installer")
-            parts = [f"Detected external installer: {name}"]
+            name = str(payload.get("installerName", "installer"))
+            self.monitoring_started.emit(name)
+            parts = [f"Detected installer: {name}"]
             if payload.get("viaMsiexec"):
                 parts.append("(MSI via msiexec)")
             if payload.get("elevationDetected"):
@@ -61,20 +64,26 @@ class QtEventBridge(QObject):
                 parts.append(f"Chain: {chain}")
             self.installation_detected.emit(" ".join(parts))
             return
+        if event is AgentEvent.INSTALLER_LAUNCHED:
+            name = str(payload.get("installerName", "installer"))
+            mode = payload.get("mode")
+            if mode == "passive":
+                self.installation_detected.emit(f"Live monitoring started for {name}")
+            else:
+                self.monitoring_started.emit(name)
+                self.status_update.emit(f"Installation started — monitoring {name}")
+            return
         if event is AgentEvent.INSTALLATION_ERROR_DETECTED:
             self.installation_error.emit(dict(payload))
+            return
+        if event is AgentEvent.SLM_DIAGNOSIS_COMPLETE:
+            self.slm_diagnosis_ready.emit(dict(payload))
             return
         message = _map_event_to_message(event, payload)
         if message:
             self.status_update.emit(message)
 
-
 def _map_event_to_message(event: AgentEvent, payload: dict[str, Any]) -> str | None:
-    if event is AgentEvent.INSTALLER_LAUNCHED:
-        mode = payload.get("mode")
-        if mode == "passive":
-            return "Automatic monitoring started for external installer."
-        return "Installation started. Monitoring progress..."
     if event is AgentEvent.INSTALLER_EXITED:
         exit_code = payload.get("exitCode")
         if exit_code is None:

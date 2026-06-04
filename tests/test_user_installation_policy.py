@@ -40,7 +40,7 @@ def test_accepts_downloads_setup(_mock_interactive: object) -> None:
         installer_path=Path(r"C:\Downloads\MyApp-setup.exe"),
         executable_path=Path(r"C:\Downloads\MyApp-setup.exe"),
         command_line=r"C:\Downloads\MyApp-setup.exe",
-        parent_chain=("explorer.exe",),
+        parent_chain=("explorer.exe", "explorer.exe"),
         via_msiexec=False,
         process_create_time=__import__("time").time(),
         max_process_age_seconds=120,

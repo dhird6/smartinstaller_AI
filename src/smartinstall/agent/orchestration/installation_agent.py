@@ -24,14 +24,15 @@ from smartinstall.agent.infrastructure.input_validator import validate_installer
 from smartinstall.agent.detection.installer_process_detector import DetectedInstallerProcess
 from smartinstall.agent.runners.installer_runner import InstallerRunner
 from smartinstall.agent.runners.process_attach_runner import ProcessAttachRunner
-from smartinstall.agent.session.unified_report_writer import UnifiedReportWriter
 from smartinstall.agent.session.session_manager import SessionManager
+from smartinstall.agent.session.unified_report_writer import UnifiedReportWriter
+from smartinstall.agent.testing.test_issue_injector import TestIssueInjector
 from smartinstall.core.enums.installation import InstallationOutcome, InstallerType
 from smartinstall.core.enums.session import SessionStatus
 from smartinstall.core.models.evidence import InstallerDetails
 from smartinstall.core.models.installation_session import InstallationSession
 from smartinstall.core.models.requests import StartSessionRequest
-from smartinstall.core.models.unified_report import UNIFIED_REPORT_FILENAME
+from smartinstall.core.models.unified_report import ReportErrorEntry, UNIFIED_REPORT_FILENAME
 from smartinstall.core.results.api_error import ApiError
 from smartinstall.core.results.result import Result
 
@@ -53,6 +54,12 @@ class InstallationAgent:
         self._runner = InstallerRunner(config)
         self._attach_runner = ProcessAttachRunner()
         self._failure_detector = FailureDetector()
+        self._test_injector = TestIssueInjector.from_config(config)
+        if self._test_injector is not None and self._test_injector.is_active:
+            logger.warning(
+                "test_issue_injection_active",
+                message="Simulated install errors are enabled — disable for production",
+            )
 
     def run_monitored_installation(
         self,
@@ -96,8 +103,13 @@ class InstallationAgent:
             self._transition(session.session_id, SessionStatus.INSTALLING)
             self._event_bus.publish(
                 AgentEvent.INSTALLER_LAUNCHED,
-                {"sessionId": session.session_id},
+                {
+                    "sessionId": session.session_id,
+                    "installerName": installer_path.name,
+                    "installerPath": str(installer_path),
+                },
             )
+            self._schedule_test_issues(session, installer_path, session_dir)
 
             run_result = self._runner.run(
                 installer_path=installer_path,
@@ -247,6 +259,7 @@ class InstallationAgent:
             if detected.elevation_detected:
                 stage += " — UAC elevated"
             _emit_stage(stage)
+            self._schedule_test_issues(session, installer_path, session_dir)
 
             run_result = self._attach_runner.attach_and_wait(
                 root_pid=attach_pid,
@@ -315,6 +328,12 @@ class InstallationAgent:
             {"sessionId": session.session_id, "exitCode": run_result.exit_code},
         )
 
+        pre_snapshot_errors = self._fire_before_post_snapshot(
+            session.session_id,
+            installer_path,
+            session_dir,
+        )
+
         self._transition(session.session_id, SessionStatus.POST_SNAPSHOTTING)
         self._event_bus.publish(
             AgentEvent.INSTALL_STAGE_CHANGED,
@@ -381,6 +400,9 @@ class InstallationAgent:
             failure_timestamp=failure_timestamp,
             is_gui_installer=is_gui,
         )
+        errors = _prepend_unique_errors(pre_snapshot_errors, errors)
+        errors = self._merge_test_issues(errors, installer_path)
+        detection = self._apply_test_outcome(detection, errors, installer_path)
         detection = refine_outcome(detection, errors, failure_timestamp=failure_timestamp)
 
         if errors:
@@ -448,11 +470,80 @@ class InstallationAgent:
         )
         return Result.ok((finalize.value, unified))
 
+    def _fire_before_post_snapshot(
+        self,
+        session_id: str,
+        installer_path: Path,
+        session_dir: Path,
+    ) -> list[ReportErrorEntry]:
+        if self._test_injector is None or not self._test_injector.is_active:
+            return []
+        return self._test_injector.fire_before_post_snapshot(
+            self._event_bus,
+            session_id=session_id,
+            installer_path=installer_path,
+            session_directory=session_dir,
+        )
+
+    def _schedule_test_issues(
+        self,
+        session: InstallationSession,
+        installer_path: Path,
+        session_dir: Path,
+    ) -> None:
+        if self._test_injector is None or not self._test_injector.is_active:
+            return
+        self._test_injector.schedule_during_install(
+            self._event_bus,
+            session_id=session.session_id,
+            installer_path=installer_path,
+            session_directory=session_dir,
+        )
+
+    def _merge_test_issues(
+        self,
+        errors: list,
+        installer_path: Path,
+    ) -> list:
+        if self._test_injector is None or not self._test_injector.is_active:
+            return errors
+        return self._test_injector.merge_into_errors(errors, installer_path)
+
+    def _apply_test_outcome(
+        self,
+        detection: object,
+        errors: list,
+        installer_path: Path,
+    ) -> object:
+        if self._test_injector is None or not self._test_injector.is_active:
+            return detection
+        return self._test_injector.apply_failed_outcome_if_needed(
+            detection,  # type: ignore[arg-type]
+            errors,  # type: ignore[arg-type]
+            installer_path,
+        )
+
     def _transition(self, session_id: str, state: SessionStatus) -> None:
         result = self._session_manager.transition_state(session_id, state)
         if not result.success:
             message = result.error.message if result.error else "State transition failed"
             raise RuntimeError(message)
+
+
+def _prepend_unique_errors(
+    prepend: list[ReportErrorEntry],
+    errors: list[ReportErrorEntry],
+) -> list[ReportErrorEntry]:
+    if not prepend:
+        return errors
+    existing = {entry.code for entry in errors}
+    merged = list(errors)
+    for entry in reversed(prepend):
+        if entry.code in existing:
+            continue
+        merged.insert(0, entry)
+        existing.add(entry.code)
+    return merged
 
 
 def _map_status_to_outcome(status: str) -> InstallationOutcome:

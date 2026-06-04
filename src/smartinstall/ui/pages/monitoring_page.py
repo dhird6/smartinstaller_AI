@@ -17,6 +17,7 @@ from smartinstall.agent.orchestration.automated_run_orchestrator import Automate
 from smartinstall.ui.components.install_visualizer import InstallVisualizer, InstallVisualState
 from smartinstall.ui.components.ui_card import PAGE_MARGIN, PAGE_SPACING, section_card
 from smartinstall.ui.theme.cctech_theme import CCTechPalette, body_stylesheet, heading_stylesheet, muted_stylesheet
+from smartinstall.ui.services.slm_diagnosis_display import format_slm_diagnosis
 from smartinstall.ui.widgets.live_log_viewer import LiveLogViewer
 
 
@@ -88,6 +89,23 @@ class MonitoringPage(QScrollArea):
         self._timeline_label.setStyleSheet(body_stylesheet(palette))
         root.addWidget(self._titled_card("Installation timeline", self._timeline_label))
 
+        self._ai_status_label = QLabel("AI analysis: waiting for installation data")
+        self._ai_status_label.setStyleSheet(muted_stylesheet(palette))
+        self._ai_analysis_label = QLabel(
+            "When an installation fails, the local SLM will provide root cause analysis "
+            "and recommended fixes here."
+        )
+        self._ai_analysis_label.setWordWrap(True)
+        self._ai_analysis_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self._ai_analysis_label.setStyleSheet(body_stylesheet(palette))
+        ai_card = self._titled_card("AI troubleshooting analysis", self._ai_analysis_label)
+        ai_layout = ai_card.layout()
+        if ai_layout is not None:
+            ai_layout.insertWidget(1, self._ai_status_label)
+        root.addWidget(ai_card)
+
         self._live_logs = LiveLogViewer(palette)
         root.addWidget(self._titled_card("Live log stream", self._live_logs))
         root.addStretch(1)
@@ -104,6 +122,34 @@ class MonitoringPage(QScrollArea):
         layout.addWidget(sep)
         layout.addWidget(content)
         return card
+
+    def set_slm_pending(self) -> None:
+        self._ai_status_label.setText("AI analysis: running local diagnosis (Ollama)…")
+        self._ai_analysis_label.setText(
+            "Analyzing installation errors. Results will appear here and in Troubleshooting "
+            "when complete."
+        )
+
+    def set_slm_diagnosis(
+        self,
+        answer: str,
+        sources: list[str] | None = None,
+        *,
+        status: str = "ready",
+    ) -> None:
+        bundle = format_slm_diagnosis(answer, sources)
+        status_text = {
+            "ready": "AI analysis: complete",
+            "unavailable": "AI analysis: unavailable — check Ollama and retry",
+            "running": "AI analysis: in progress…",
+        }.get(status, status)
+        self._ai_status_label.setText(status_text)
+        self._ai_analysis_label.setText(bundle.full_text)
+        self._live_logs.append_line("— AI troubleshooting analysis —")
+        for heading, body in bundle.sections:
+            self._live_logs.append_line(f"{heading}: {body.splitlines()[0][:160]}")
+        if not bundle.sections:
+            self._live_logs.append_line(bundle.summary[:300])
 
     def set_idle(self) -> None:
         self._visualizer.set_state(InstallVisualState.IDLE)
@@ -166,8 +212,10 @@ class MonitoringPage(QScrollArea):
         self._progress.setStyleSheet(
             f"QProgressBar::chunk {{ background: {p.error}; border-radius: 4px; }}"
         )
+        for error in result.report.errors[:10]:
+            self._live_logs.append_line(f"[{error.category}]  {error.code}:  {error.message}")
         self._live_logs.append_line(
-            "Installation encountered errors — open Troubleshooting for AI analysis."
+            "Installation finished with errors — SLM analysis will appear in the panel above."
         )
 
     def append_log(self, line: str) -> None:

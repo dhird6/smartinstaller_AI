@@ -74,8 +74,12 @@ def run_desktop(config_path: Path | None = None, *, start_in_tray: bool = False)
     def on_slm(answer: str, sources: list[str]) -> None:
         shell.on_slm_completed(answer, sources)
 
+    def on_slm_failed(message: str) -> None:
+        shell.on_slm_failed(message)
+
     controller.on_run_completed = on_run_completed
     controller.on_slm_completed = on_slm
+    controller.on_slm_failed = on_slm_failed
 
     def _show_main() -> None:
         splash.close()

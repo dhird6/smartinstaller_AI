@@ -14,6 +14,14 @@ from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLay
 
 
 
+from pathlib import Path
+
+from smartinstall.agent.notifications.installation_notification_builder import (
+    format_slm_completion_toast,
+    monitoring_started_message,
+)
+from smartinstall.agent.notifications.windows_notifier import WindowsNotifier
+from smartinstall.core.models.unified_report import ReportErrorEntry
 from smartinstall.agent.orchestration.automated_run_orchestrator import AutomatedRunResult
 
 from smartinstall.ui.controllers.desktop_controller import DesktopController
@@ -22,7 +30,6 @@ from smartinstall.ui.models.chat_message import ChatMessage, ChatRole
 
 from smartinstall.agent.monitoring.monitoring_state_store import MonitoringPlatformState
 from smartinstall.agent.services.background_monitor_service import BackgroundMonitorService
-from smartinstall.ui.dialogs.smart_error_dialog import SmartErrorDialog
 from smartinstall.ui.pages.dashboard_page import DashboardPage
 from smartinstall.ui.pages.full_chat_page import FullChatPage
 from smartinstall.ui.pages.installation_center_page import InstallationCenterPage
@@ -32,6 +39,7 @@ from smartinstall.ui.workers.background_sync_worker import BackgroundSyncWorker
 
 from smartinstall.ui.resources.brand_assets import load_brand_logo_pixmap
 
+from smartinstall.ui.services.run_result_loader import load_run_result_from_report
 from smartinstall.ui.services.session_stats_service import load_dashboard_stats
 
 from smartinstall.ui.shell.floating_chat_widget import FloatingChatWidget
@@ -89,6 +97,8 @@ class MainShell(QMainWindow):
         self._last_slm_sources: list[str] = []
 
         self._current_page = self.PAGE_DASHBOARD
+        self._notifier = WindowsNotifier()
+        self._shown_toast_keys: set[str] = set()
 
 
 
@@ -278,6 +288,9 @@ class MainShell(QMainWindow):
         self._controller.event_bridge.stage_changed.connect(self._monitoring.set_stage)
         self._controller.event_bridge.installation_detected.connect(self._on_installation_detected)
         self._controller.event_bridge.installation_error.connect(self._on_installation_error)
+        self._troubleshooting.open_ai_chat.connect(self._on_troubleshooting_open_chat)
+        self._controller.event_bridge.monitoring_started.connect(self._on_monitoring_started)
+        self._controller.event_bridge.slm_diagnosis_ready.connect(self._on_slm_diagnosis_ready)
         if self._background_service is not None:
             self._sync_worker = BackgroundSyncWorker(self._background_service)
             self._sync_worker.state_updated.connect(self._on_platform_state)
@@ -428,6 +441,26 @@ class MainShell(QMainWindow):
                 self._monitoring.set_stage(active.stage)
                 self._monitoring.set_process_info(f"pid={active.pid}")
 
+    def _toast_once(self, key: str, *, title: str, message: str) -> None:
+        if key in self._shown_toast_keys:
+            return
+        if not self._controller._config.enable_windows_notifications:  # noqa: SLF001
+            return
+        self._shown_toast_keys.add(key)
+        self._notifier.show_combined_notification(title=title, message=message)
+
+    def _on_monitoring_started(self, installer_name: str) -> None:
+        self._monitoring.set_busy(f"Live monitoring: {installer_name}")
+        self._monitoring.append_log(
+            "Smart Installer is actively monitoring this installation in real time."
+        )
+        self._navigate(self.PAGE_MONITORING)
+        self._toast_once(
+            f"monitoring-start:{installer_name}",
+            title="Smart Installer — Live Monitoring",
+            message=monitoring_started_message(installer_name),
+        )
+
     def _on_installation_detected(self, message: str) -> None:
         self._monitoring.set_busy(message)
         self._navigate(self.PAGE_MONITORING)
@@ -435,38 +468,103 @@ class MainShell(QMainWindow):
     def _on_installation_error(self, payload: dict) -> None:
         message = str(payload.get("message", "Installation error"))
         code = str(payload.get("code", ""))
-        session_id = str(payload.get("sessionId", ""))
         self._monitoring.append_log(f"ERROR {code}: {message}")
-        dialog = SmartErrorDialog(
-            self._palette,
-            title="Installation failure",
-            error_code=code,
-            error_message=message,
-            root_cause=str(payload.get("category", "Installer failure")),
-            suggested_solution=_suggest_fix_from_message(message),
-            confidence=0.82,
-            session_id=session_id,
-            parent=self,
-        )
-        dialog.open_dashboard.connect(lambda _: self._navigate(self.PAGE_TROUBLESHOOTING))
-        dialog.exec()
+        if self._controller.auto_run_slm:
+            self._monitoring.set_slm_pending()
 
     def _on_pending_notification(self, payload: object) -> None:
         if not isinstance(payload, dict):
             return
-        dialog = SmartErrorDialog(
-            self._palette,
-            title=str(payload.get("installerName", "Installation")),
-            error_code=str(payload.get("errorCode", "")),
-            error_message=str(payload.get("errorMessage", "Installation failed")),
-            root_cause="Detected during background monitoring",
-            suggested_solution=str(payload.get("suggestedFix", "Open dashboard for analysis.")),
-            confidence=0.78,
+        if payload.get("awaitingSlm"):
+            return
+        slm_answer = str(payload.get("slmAnswer", "")).strip()
+        if slm_answer:
+            sources = [str(item) for item in payload.get("slmSources", [])]
+            errors = self._errors_from_notification(payload)
+            self._apply_slm_diagnosis(
+                slm_answer,
+                sources,
+                navigate=True,
+                notification_errors=errors,
+                session_id=str(payload.get("sessionId", "")),
+            )
+
+    def _on_slm_diagnosis_ready(self, payload: dict) -> None:
+        answer = str(payload.get("answer", "")).strip()
+        if not answer:
+            return
+        sources = [str(item) for item in payload.get("sources", [])]
+        report_path = payload.get("reportPath")
+        if self._last_run is None and report_path:
+            loaded = load_run_result_from_report(Path(str(report_path)))
+            if loaded is not None:
+                self._last_run = loaded
+        errors = self._last_run.report.errors if self._last_run is not None else []
+        self._apply_slm_diagnosis(
+            answer,
+            sources,
+            navigate=True,
+            notification_errors=errors,
             session_id=str(payload.get("sessionId", "")),
-            parent=self,
         )
-        dialog.open_dashboard.connect(lambda _: self._navigate(self.PAGE_TROUBLESHOOTING))
-        dialog.exec()
+
+    @staticmethod
+    def _errors_from_notification(payload: dict) -> list[ReportErrorEntry]:
+        raw_errors = payload.get("errors")
+        if not isinstance(raw_errors, list):
+            return []
+        entries: list[ReportErrorEntry] = []
+        for item in raw_errors:
+            if not isinstance(item, dict):
+                continue
+            entries.append(
+                ReportErrorEntry(
+                    category=str(item.get("category", "installation")),
+                    code=str(item.get("code", "")),
+                    message=str(item.get("message", "")),
+                    source="notification",
+                )
+            )
+        return entries
+
+    def _apply_slm_diagnosis(
+        self,
+        answer: str,
+        sources: list[str],
+        *,
+        navigate: bool = False,
+        status: str = "ready",
+        notification_errors: list[ReportErrorEntry] | None = None,
+        session_id: str = "",
+    ) -> None:
+        self._last_slm_answer = answer
+        self._last_slm_sources = sources
+        self._monitoring.set_slm_diagnosis(answer, sources, status=status)
+        pending = status == "running"
+        if self._last_run is not None:
+            self._troubleshooting.apply_run_result(
+                self._last_run,
+                slm_answer=answer,
+                slm_sources=sources,
+                ai_status=status,
+                slm_pending=pending,
+            )
+            if navigate and self._run_needs_troubleshooting(self._last_run):
+                self._navigate(self.PAGE_TROUBLESHOOTING)
+        installer = ""
+        errors = notification_errors or []
+        if self._last_run is not None:
+            installer = self._last_run.report.status.installer.installer_name
+            if not errors:
+                errors = self._last_run.report.errors
+        if status == "ready":
+            toast_key = f"slm-complete:{session_id or installer}"
+            title, message = format_slm_completion_toast(
+                installer_name=installer,
+                slm_answer=answer,
+                errors=errors,
+            )
+            self._toast_once(toast_key, title=title, message=message)
 
     def closeEvent(self, event) -> None:  # noqa: N802
         if self._controller._config.minimize_to_tray:  # noqa: SLF001
@@ -490,85 +588,106 @@ class MainShell(QMainWindow):
 
 
 
-    def on_run_completed(
+    def _run_needs_troubleshooting(self, result: AutomatedRunResult) -> bool:
+        report = result.report
+        outcome = (report.status.installation_outcome or "").lower()
+        if outcome in {"failed", "failure", "error", "partial"}:
+            return True
+        return bool(report.errors) or bool(report.status.failure_reason)
 
+    def _troubleshooting_ai_status(
         self,
-
-        result: AutomatedRunResult,
-
         *,
+        slm_answer: str | None,
+        pending_slm: bool,
+    ) -> str:
+        if slm_answer and slm_answer.strip():
+            return "ready"
+        if pending_slm:
+            return "running"
+        return "idle"
 
+    def on_run_completed(
+        self,
+        result: AutomatedRunResult,
+        *,
         slm_answer: str | None = None,
-
         slm_sources: list[str] | None = None,
-
     ) -> None:
-
         self._last_run = result
-
         self._last_slm_answer = slm_answer
-
         self._last_slm_sources = slm_sources or []
 
         outcome = result.report.status.installation_outcome.lower()
+        needs_tshoot = self._run_needs_troubleshooting(result)
+        pending_slm = (
+            needs_tshoot
+            and slm_answer is None
+            and self._controller.auto_run_slm
+        )
 
         if outcome in {"success", "completed"}:
-
             self._monitoring.set_success(result)
-
         elif outcome in {"failed", "failure", "error"}:
-
             self._monitoring.set_error(result)
             reason = (
                 result.report.status.failure_reason
-                or "Installation failed — open Troubleshooting or ask in Full Chat."
+                or "Installation failed — see Troubleshooting for AI suggestions."
             )
             self._full_chat.show_error_notice(reason)
-
         else:
-
             self._monitoring.apply_run_result(result)
 
         self._troubleshooting.apply_run_result(
-
             result,
-
             slm_answer=slm_answer,
-
             slm_sources=slm_sources,
-
+            ai_status=self._troubleshooting_ai_status(
+                slm_answer=slm_answer,
+                pending_slm=pending_slm,
+            ),
+            slm_pending=pending_slm,
         )
+
+        if needs_tshoot:
+            self._navigate(self.PAGE_TROUBLESHOOTING)
+            if pending_slm:
+                self._monitoring.set_slm_pending()
+            elif slm_answer:
+                self._monitoring.set_slm_diagnosis(slm_answer, slm_sources)
 
         self._refresh_dashboard()
 
         ctx = result.discovered.file_name
-
         self._floating_chat.set_context(ctx)
-
         self._full_chat.set_context(ctx)
 
-
-
     def on_slm_completed(self, answer: str, sources: list[str]) -> None:
+        self._apply_slm_diagnosis(answer, sources, navigate=True, status="ready")
 
-        self._last_slm_answer = answer
-
-        self._last_slm_sources = sources
-
+    def on_slm_failed(self, message: str) -> None:
         if self._last_run is not None:
-
             self._troubleshooting.apply_run_result(
-
                 self._last_run,
-
-                slm_answer=answer,
-
-                slm_sources=sources,
-
+                slm_answer=self._last_slm_answer,
+                slm_sources=self._last_slm_sources,
+                ai_status="unavailable",
+                slm_pending=False,
             )
+            self._monitoring.set_slm_diagnosis(
+                f"AI diagnosis unavailable: {message[:300]}",
+                self._last_slm_sources,
+                status="unavailable",
+            )
+            if self._run_needs_troubleshooting(self._last_run):
+                self._navigate(self.PAGE_TROUBLESHOOTING)
+        self._full_chat.show_error_notice(
+            f"AI diagnosis unavailable: {message[:200]}"
+        )
 
-        if self._current_page != self.PAGE_FULL_CHAT:
-            self._navigate(self.PAGE_TROUBLESHOOTING)
+    def _on_troubleshooting_open_chat(self, prompt: str) -> None:
+        self._floating_chat.open_compact()
+        self._chat.prefill_input(prompt)
 
 
 def _suggest_fix_from_message(message: str) -> str:

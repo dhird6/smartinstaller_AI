@@ -14,10 +14,14 @@ from smartinstall.agent.detection.user_installation_policy import (
 
 
 @patch(
+    "smartinstall.agent.detection.installer_process_detector._parent_names",
+    return_value=("explorer.exe",),
+)
+@patch(
     "smartinstall.agent.detection.user_installation_policy._is_interactive_user",
     return_value=True,
 )
-def test_classify_setup_exe(_mock_interactive: object) -> None:
+def test_classify_setup_exe(_mock_interactive: object, _mock_parents: object) -> None:
     detector = InstallerProcessDetector()
     result = detector._classify(  # noqa: SLF001
         100,
@@ -25,7 +29,7 @@ def test_classify_setup_exe(_mock_interactive: object) -> None:
             "name": "setup.exe",
             "exe": r"C:\Downloads\MyApp-setup.exe",
             "cmdline": [r"C:\Downloads\MyApp-setup.exe", "/S"],
-            "ppid": os.getpid(),
+            "ppid": 9999,
             "create_time": __import__("time").time(),
         },
     )
@@ -34,10 +38,14 @@ def test_classify_setup_exe(_mock_interactive: object) -> None:
 
 
 @patch(
+    "smartinstall.agent.detection.installer_process_detector._parent_names",
+    return_value=("explorer.exe",),
+)
+@patch(
     "smartinstall.agent.detection.user_installation_policy._is_interactive_user",
     return_value=True,
 )
-def test_classify_msiexec(_mock_interactive: object) -> None:
+def test_classify_msiexec(_mock_interactive: object, _mock_parents: object) -> None:
     detector = InstallerProcessDetector()
     result = detector._classify(  # noqa: SLF001
         200,
@@ -45,7 +53,7 @@ def test_classify_msiexec(_mock_interactive: object) -> None:
             "name": "msiexec.exe",
             "exe": r"C:\Windows\System32\msiexec.exe",
             "cmdline": ["msiexec.exe", "/i", r"C:\Downloads\product.msi"],
-            "ppid": os.getpid(),
+            "ppid": 9999,
             "create_time": __import__("time").time(),
         },
     )

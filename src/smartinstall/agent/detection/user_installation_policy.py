@@ -145,10 +145,22 @@ def evaluate_user_installation(
         if age > max_process_age_seconds:
             return False, f"process too old ({int(age)}s)"
 
-    if not _has_user_launch_signal(parent_chain, path_lower):
-        return False, "no user launch signal (Explorer/Downloads/Desktop)"
+    if not _has_direct_user_parent(parent_chain):
+        return False, "not launched from Explorer or user shell parent"
 
     return True, "user-initiated"
+
+
+def _has_direct_user_parent(parent_chain: tuple[str, ...]) -> bool:
+    """Automatic monitoring requires Explorer/browser/consent→Explorer in the chain."""
+    if not parent_chain:
+        return False
+    immediate = parent_chain[0].lower()
+    if immediate in _USER_LAUNCH_PARENT_NAMES:
+        return True
+    if immediate in ("consent.exe", "dllhost.exe"):
+        return any(name.lower() in _USER_LAUNCH_PARENT_NAMES for name in parent_chain[1:])
+    return False
 
 
 def looks_like_user_installer_candidate(
@@ -220,15 +232,6 @@ def _chain_has_background_actor(parent_chain: tuple[str, ...], process_name: str
     if names.intersection(_BACKGROUND_PARENT_NAMES) and not names.intersection(
         _USER_LAUNCH_PARENT_NAMES
     ):
-        return True
-    return False
-
-
-def _has_user_launch_signal(parent_chain: tuple[str, ...], installer_path_lower: str) -> bool:
-    if _is_user_content_path(installer_path_lower):
-        return True
-    parents = {p.lower() for p in parent_chain}
-    if parents.intersection(_USER_LAUNCH_PARENT_NAMES):
         return True
     return False
 

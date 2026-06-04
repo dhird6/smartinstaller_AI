@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -9,10 +10,8 @@ from pathlib import Path
 
 import structlog
 
-from smartinstall.agent.detection.installer_process_detector import (
-    DetectedInstallerProcess,
-    InstallerProcessDetector,
-)
+from smartinstall.agent.detection.installation_launch_detector import InstallationLaunchDetector
+from smartinstall.agent.detection.installer_process_detector import DetectedInstallerProcess
 from smartinstall.agent.di.container import ServiceContainer
 from smartinstall.agent.infrastructure.event_bus import AgentEvent, EventBus
 from smartinstall.agent.intake.report_publisher import ReportPublisher
@@ -53,6 +52,7 @@ class BackgroundMonitorService:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._handlers_attached = False
+        self._launch_detector: InstallationLaunchDetector | None = None
 
     @property
     def state_store(self) -> MonitoringStateStore:
@@ -67,6 +67,10 @@ class BackgroundMonitorService:
         state.service_running = True
         state.automatic_monitoring_enabled = self._config.auto_monitor_enabled
         self._state_store.save(state)
+        self._launch_detector = InstallationLaunchDetector(
+            exclude_pids=frozenset(self._tracked_pids),
+            max_launch_age_seconds=float(self._config.auto_monitor_max_process_age_seconds),
+        )
         self._thread = threading.Thread(target=self._run_loop, name="BackgroundMonitor", daemon=True)
         self._thread.start()
         logger.info("background_monitor_service_started")
@@ -108,12 +112,10 @@ class BackgroundMonitorService:
                 return
 
             self._prune_cooldowns()
-            exclude = frozenset(self._tracked_pids)
-            detector = InstallerProcessDetector(
-                exclude_pids=exclude,
-                max_process_age_seconds=float(self._config.auto_monitor_max_process_age_seconds),
-            )
-            for detected in detector.scan():
+            if self._launch_detector is None:
+                return
+            self._launch_detector.set_exclude_pids(frozenset(self._tracked_pids | {os.getpid()}))
+            for detected in self._launch_detector.scan_new_launches():
                 if self._active_monitor_count >= max_concurrent:
                     break
 
@@ -125,7 +127,7 @@ class BackgroundMonitorService:
                     else:
                         continue
 
-                package_key = _package_key(installer_path)
+                package_key = detected.launch_id or _package_key(installer_path)
                 if package_key in self._in_progress_packages:
                     continue
                 if self._is_on_cooldown(package_key):
@@ -173,13 +175,6 @@ class BackgroundMonitorService:
 
         session_id = ""
         try:
-            elevation_note = " (UAC elevated)" if detected.elevation_detected else ""
-            msi_note = " via msiexec" if detected.via_msiexec else ""
-            self._notifier.show_toast(
-                title="Installation Detected",
-                message=f"Monitoring {installer_path.name}{msi_note}{elevation_note}",
-            )
-
             result = self._agent.run_passive_monitoring(request, detected, monitor_pid=monitor_pid)
             if not result.success or result.value is None:
                 logger.warning("passive_monitor_failed", pid=detected.pid)
@@ -202,10 +197,16 @@ class BackgroundMonitorService:
                 self._enqueue_error_notification(
                     session_id=session_id,
                     installer_name=installer_path.name,
-                    error_code=err.code,
-                    error_message=err.message,
                     report_path=str(report_path),
+                    errors=unified.errors,
+                    defer_toast=self._config.auto_run_slm,
                 )
+                if self._config.auto_run_slm and report_path is not None:
+                    self._schedule_slm_diagnosis(
+                        report_path=report_path,
+                        session_id=session_id,
+                        installer_name=installer_path.name,
+                    )
 
             self._state_store.remove_active(session_id)
             self._state_store.record_completed(
@@ -233,6 +234,8 @@ class BackgroundMonitorService:
         self._in_progress_packages.discard(package_key)
         self._tracked_pids.discard(monitor_pid)
         self._active_sessions.pop(monitor_pid, None)
+        if self._launch_detector is not None and detected.launch_id:
+            self._launch_detector.release_launch(detected.launch_id)
         with self._scan_lock:
             self._active_monitor_count = max(0, self._active_monitor_count - 1)
 
@@ -251,24 +254,99 @@ class BackgroundMonitorService:
         *,
         session_id: str,
         installer_name: str,
-        error_code: str,
-        error_message: str,
         report_path: str,
+        errors: list,
+        defer_toast: bool = False,
     ) -> None:
+        first = errors[0]
         payload = {
             "sessionId": session_id,
             "installerName": installer_name,
-            "errorCode": error_code,
-            "errorMessage": error_message,
+            "errorCode": first.code,
+            "errorMessage": first.message,
             "reportPath": report_path,
-            "suggestedFix": _suggest_fix(error_message),
+            "errors": [
+                {"code": e.code, "message": e.message, "category": e.category}
+                for e in errors[:10]
+            ],
+            "awaitingSlm": defer_toast,
         }
         self._state_store.enqueue_notification(payload)
-        if self._config.enable_windows_notifications:
-            self._notifier.show_installation_failed(
-                error_message=error_message,
-                suggested_fix=payload["suggestedFix"],
+
+    def _schedule_slm_diagnosis(
+        self,
+        *,
+        report_path: Path,
+        session_id: str,
+        installer_name: str,
+    ) -> None:
+        worker = threading.Thread(
+            target=self._run_slm_diagnosis,
+            kwargs={
+                "report_path": report_path,
+                "session_id": session_id,
+                "installer_name": installer_name,
+            },
+            name=f"SlmDiagnosis-{session_id[:8]}",
+            daemon=True,
+        )
+        worker.start()
+
+    def _run_slm_diagnosis(
+        self,
+        *,
+        report_path: Path,
+        session_id: str,
+        installer_name: str,
+    ) -> None:
+        from smartinstall.agent.slm.auto_diagnosis import run_slm_for_report
+        from smartinstall.agent.slm.rag_engine import RagDiagnosisConfig, load_report
+        from smartinstall.agent.slm.slm_result_text import slm_text_from_result
+
+        config = RagDiagnosisConfig(
+            docs_path=self._config.rag_docs_directory.resolve(),
+            llm_model=self._config.slm_model,
+            embedding_model=self._config.slm_embedding_model,
+            top_k=self._config.slm_top_k,
+        )
+        try:
+            result = run_slm_for_report(report_path, config=config)
+            answer = slm_text_from_result(result)
+            if not result.success or not answer:
+                logger.warning("background_slm_failed", session_id=session_id, error=result.error)
+                return
+
+            report_errors = []
+            try:
+                report_errors = load_report(report_path).errors
+            except (OSError, ValueError):
+                pass
+
+            self._event_bus.publish(
+                AgentEvent.SLM_DIAGNOSIS_COMPLETE,
+                {
+                    "sessionId": session_id,
+                    "reportPath": str(report_path),
+                    "installerName": installer_name,
+                    "answer": answer,
+                    "sources": list(result.sources),
+                },
             )
+            self._state_store.enqueue_notification(
+                {
+                    "sessionId": session_id,
+                    "installerName": installer_name,
+                    "reportPath": str(report_path),
+                    "slmAnswer": answer,
+                    "slmSources": list(result.sources),
+                    "errors": [
+                        {"code": e.code, "message": e.message, "category": e.category}
+                        for e in report_errors[:10]
+                    ],
+                }
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("background_slm_thread_failed", session_id=session_id)
 
     def _on_installer_launched(self, event: AgentEvent, payload: dict) -> None:
         if payload.get("mode") != "passive":
@@ -305,17 +383,19 @@ class BackgroundMonitorService:
             self._state_store.save(state)
 
     def _on_error(self, event: AgentEvent, payload: dict) -> None:
-        if not self._config.enable_windows_notifications:
-            return
-        message = str(payload.get("message", "Installation error"))
-        self._notifier.show_installation_failed(
-            error_message=message,
-            suggested_fix=_suggest_fix(message),
-        )
+        """Test/live errors are logged in-app; combined SLM toast is sent after install completes."""
+        _ = payload
 
 
 def _package_key(path: Path) -> str:
     return str(path.resolve()).lower()
+
+
+def _test_fix_from_error(error) -> str | None:
+    raw = getattr(error, "raw_excerpt", None) or getattr(error, "rawExcerpt", None)
+    if raw and str(raw).startswith("[TEST]"):
+        return str(raw).removeprefix("[TEST]").strip() or None
+    return None
 
 
 def _suggest_fix(error_message: str) -> str:

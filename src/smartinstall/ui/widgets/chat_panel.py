@@ -238,8 +238,14 @@ class ChatPanel(QWidget):
             self._welcome_card.hide()
             self._welcome_visible = False
 
-    def _use_prompt(self, text: str) -> None:
+    def prefill_input(self, text: str) -> None:
+        """Put text in the composer without sending — user can edit and press Enter."""
+        self._hide_welcome()
         self._input.setText(text)
+        self._input.setFocus()
+
+    def _use_prompt(self, text: str) -> None:
+        self.prefill_input(text)
         self.prompt_chosen.emit(text)
 
     def _quick_action(self, action: str) -> None:

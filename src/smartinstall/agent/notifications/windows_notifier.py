@@ -45,6 +45,30 @@ class WindowsNotifier:
         body = f"Error: {error_message}\nSuggested fix: {suggested_fix}"
         self.show_toast(title="Installation Failed", message=body)
 
+    def show_monitoring_started(self, installer_name: str) -> None:
+        body = (
+            "Smart Installer has detected an active software installation and is monitoring "
+            "the installation process in real time to identify and resolve potential issues."
+        )
+        if installer_name:
+            body = f"{body}\n\nInstaller: {installer_name}"
+        self.show_toast(title="Smart Installer — Live Monitoring", message=body)
+
+    def show_slm_troubleshooting(
+        self,
+        *,
+        installer_name: str,
+        analysis_excerpt: str,
+    ) -> None:
+        title = "AI Troubleshooting Ready"
+        if installer_name:
+            title = f"AI Troubleshooting — {installer_name}"
+        self.show_toast(title=title, message=analysis_excerpt)
+
+    def show_combined_notification(self, *, title: str, message: str) -> None:
+        """Single toast for monitoring start or combined error + SLM results."""
+        self.show_toast(title=title, message=message)
+
     @staticmethod
     def _display_xml(toast_xml: str) -> None:
         xml_path: Path | None = None

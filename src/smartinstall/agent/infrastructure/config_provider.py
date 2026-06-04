@@ -77,10 +77,10 @@ class SmartInstallConfig(BaseSettings):
         ge=2,
     )
     auto_monitor_max_process_age_seconds: int = Field(
-        default=120,
+        default=60,
         alias="autoMonitorMaxProcessAgeSeconds",
-        ge=30,
-        description="Only monitor installer processes started within this many seconds",
+        ge=15,
+        description="Only monitor installer processes created within this many seconds of detection",
     )
     auto_monitor_cooldown_seconds: int = Field(
         default=600,
@@ -114,6 +114,15 @@ class SmartInstallConfig(BaseSettings):
         alias="autoStartAtLogin",
         description="Register current user Run key to launch Smart Installer at logon",
     )
+    enable_test_issue_injection: bool = Field(
+        default=False,
+        alias="enableTestIssueInjection",
+        description="QA ONLY: inject simulated errors from test_installation_issues.json",
+    )
+    test_installation_issues_file: Path = Field(
+        default=Path("config/test_installation_issues.json"),
+        alias="testInstallationIssuesFile",
+    )
     slm_model: str = Field(default="phi3:mini", alias="slmModel")
     slm_embedding_model: str = Field(default="nomic-embed-text", alias="slmEmbeddingModel")
     slm_top_k: int = Field(default=2, alias="slmTopK", ge=1)
@@ -137,6 +146,7 @@ class SmartInstallConfig(BaseSettings):
         "sessions_summary_dir",
         "agent_log_path",
         "rag_docs_directory",
+        "test_installation_issues_file",
         mode="before",
     )
     @classmethod

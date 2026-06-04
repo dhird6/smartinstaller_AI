@@ -39,10 +39,17 @@ class DesktopController(QObject):
         self.on_message: Callable[[ChatMessage], None] | None = None
         self.on_run_completed: Callable[[object], None] | None = None
         self.on_slm_completed: Callable[[str, list[str]], None] | None = None
+        self.on_slm_failed: Callable[[str], None] | None = None
         self._last_slm_answer: str = ""
         self._last_slm_sources: list[str] = []
+        self._last_run_report_path: Path | None = None
+        self._last_run_session_id: str = ""
 
         self._event_bridge.status_update.connect(self._emit_status)
+
+    @property
+    def auto_run_slm(self) -> bool:
+        return self._config.auto_run_slm
 
     @property
     def event_bridge(self) -> QtEventBridge:
@@ -170,6 +177,8 @@ class DesktopController(QObject):
 
     def _on_install_succeeded(self, payload: object) -> None:
         run_result: AutomatedRunResult = payload  # type: ignore[assignment]
+        self._last_run_report_path = run_result.report_path
+        self._last_run_session_id = run_result.session.session_id
         self._emit(
             self._formatter.installation_summary(
                 run_result.report,
@@ -210,6 +219,8 @@ class DesktopController(QObject):
                 "Ensure Ollama is running and required models are installed."
             )
         )
+        if self.on_slm_failed is not None:
+            self.on_slm_failed(message)
         self._set_busy(False)
 
     def _list_installers(self) -> None:

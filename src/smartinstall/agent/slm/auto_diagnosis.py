@@ -19,6 +19,11 @@ class SlmDiagnosisResult:
     sources: list[str]
     error: str | None = None
 
+    @property
+    def answer(self) -> str:
+        """Alias for ``output`` (used by UI and notification code)."""
+        return self.output
+
 
 def run_slm_for_report(
     report_path: Path,

@@ -21,6 +21,7 @@ class AgentEvent(StrEnum):
     INSTALL_STAGE_CHANGED = "InstallStageChanged"
     LIVE_LOG_LINE = "LiveLogLine"
     INSTALLATION_ERROR_DETECTED = "InstallationErrorDetected"
+    SLM_DIAGNOSIS_COMPLETE = "SlmDiagnosisComplete"
     COLLECTION_COMPLETE = "CollectionComplete"
     REPORT_WRITE_FAILURE = "ReportWriteFailure"
 

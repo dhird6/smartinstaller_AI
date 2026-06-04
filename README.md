@@ -106,9 +106,14 @@ Automatic mode resolves installer chains:
 - UAC (`consent.exe` → elevated `setup.exe`) → flags **elevation** and walks parents
 - Dedupes wrapper + child so the same install is not monitored twice
 
-### User-initiated only (no background loop)
+### User-initiated only (tracks the real install)
 
-Automatic monitoring **ignores** Windows Update, silent `msiexec /qn`, SYSTEM/service accounts, and `Windows\Installer` cache paths. It only starts when there is a clear **user signal** (e.g. launched from **Explorer**, installer under **Downloads/Desktop**).
+Automatic monitoring uses **launch tracking**, not a full-machine scan:
+
+1. Remembers process IDs from the last poll — only **new** processes are considered.
+2. Requires the installer to be started from **Explorer** (or Open with / browser / UAC→Explorer).
+3. One **launch ID** per install — `setup.exe` + its child `msiexec` share a single session.
+4. Ignores Windows Update, silent MSI, SYSTEM accounts, and cached `Windows\Installer` paths.
 
 Anti-loop settings in `smartinstall.config.json`:
 
@@ -117,6 +122,20 @@ Anti-loop settings in `smartinstall.config.json`:
 | `autoMonitorMaxProcessAgeSeconds` | 120 | Only brand-new installer processes |
 | `autoMonitorCooldownSeconds` | 600 | Same installer not monitored again for 10 min |
 | `autoMonitorMaxConcurrent` | 1 | One automatic session at a time |
+
+### Test installation issues (QA only)
+
+Simulate errors during monitoring to validate live logs, toasts, and troubleshooting:
+
+1. `config/test_installation_issues.json` — edit scenarios (`issues[]`; set each `enabled: true`)
+2. `config/test_installation_issues.README.md` — field reference
+3. In `smartinstall.config.json`: `"enableTestIssueInjection": true`
+4. In the issues file: `"enabled": true`
+5. Restart the app; run any install (or `testing/run_slow_test_installer.bat` for a 45s dummy installer)
+
+Default QA scenario `vcredist_before_post_snapshot` fires **before post-snapshot**. Injected errors appear in live logs, Windows toasts, **Live Monitoring** (AI analysis panel), **Troubleshooting**, and the final report (`sessions/.../test_injected_issues.log`). When any installer is detected, a toast confirms real-time monitoring is active.
+
+**Never enable `enableTestIssueInjection` in production.**
 
 ### Auto-start at login (further enhancement)
 

@@ -60,6 +60,7 @@ class DetectedInstallerProcess:
     elevation_detected: bool = False
     via_msiexec: bool = False
     chain_summary: str = ""
+    launch_id: str = ""
 
 
 class InstallerProcessDetector:

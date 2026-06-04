@@ -1,18 +1,18 @@
-# SmartInstaller AI
+# SmartInstaller AI — Ollama RAG Pipeline
 
-An autonomous, fully local Ollama installation troubleshooting system powered by Retrieval-Augmented Generation (RAG). It reads error logs, retrieves the most relevant fix from a local knowledge base, and returns step-by-step repair instructions — all without any cloud API calls.
+A fully local RAG system that reads Ollama installation error logs, retrieves the most relevant fix from a structured knowledge base, and returns step-by-step repair instructions using Phi-3 — no cloud APIs required.
 
 ## How It Works
 
 ```
-Error Log  →  Log Cleaner  →  ChromaDB Retriever  →  Phi-3 (local LLM)  →  Fix Instructions
-                               (nomic-embed-text)
+Error Log  ->  Log Cleaner  ->  ChromaDB Retriever  ->  Phi-3 (local LLM)  ->  Fix Instructions
+                                (nomic-embed-text)
 ```
 
-1. **Log cleaning** — filters raw log output to only error/critical/failed lines
-2. **Embedding** — `nomic-embed-text` converts each knowledge base document into vectors stored in ChromaDB
-3. **Retrieval** — the top 2 most semantically similar error docs are fetched
-4. **Generation** — `phi3:mini` reads the retrieved docs and produces numbered fix steps
+1. **Log cleaning** — filters raw log to only error/critical/failed lines (last 20 matches)
+2. **Embedding** — `nomic-embed-text` converts each KB doc into vectors stored in ChromaDB
+3. **Retrieval** — top 2 most semantically similar docs are fetched
+4. **Generation** — `phi3:mini` reads retrieved docs and produces numbered fix steps
 
 ## Models Used
 
@@ -23,28 +23,9 @@ Error Log  →  Log Cleaner  →  ChromaDB Retriever  →  Phi-3 (local LLM)  �
 
 Both run inside Ollama — no internet required after initial setup.
 
-## Project Structure
-
-```
-smartinstaller_AI/
-├── rag.py              # Main RAG pipeline
-└── rag_docs/           # Knowledge base (one file per error type)
-    ├── antivirus_block.md
-    ├── connection_refused.md
-    ├── cuda_failure.md
-    ├── disk_full.md
-    ├── gpu_detection.md
-    ├── missing_exe.md
-    ├── model_download.md
-    ├── path_error.md
-    ├── port_conflict.md
-    ├── proxy_issue.md
-    └── server_timeout.md
-```
-
 ## Setup
 
-**1. Install Ollama for Windows**
+**1. Install Ollama**
 
 Download from [ollama.com](https://ollama.com) and run the installer.
 
@@ -58,51 +39,61 @@ ollama pull nomic-embed-text
 **3. Install Python dependencies**
 
 ```powershell
-pip install langchain langchain-community langchain-chroma chromadb
+python -m pip install langchain langchain-ollama langchain-chroma langchain-classic chromadb
 ```
 
-**4. Run**
+**4. Start Ollama and run**
 
 ```powershell
+ollama serve        # keep this running in a separate terminal
 python rag.py
 ```
 
 ## Usage
 
-By default `rag.py` runs against a mock error log. To diagnose a real failure, replace `mock_error_log` in [rag.py](rag.py) with the contents of your Ollama log file:
-
-```
-%LOCALAPPDATA%\Ollama\server.log
-```
-
-Example:
+By default `rag.py` runs against a mock ROCm/RDNA2 error log. To diagnose a real failure, replace `mock_error_log` in [rag.py](rag.py) with the contents of your Ollama server log:
 
 ```python
+import os
+from pathlib import Path
+
 log_path = Path(os.environ["LOCALAPPDATA"]) / "Ollama" / "server.log"
 mock_error_log = log_path.read_text(encoding="utf-8", errors="ignore")
 ```
 
-## Extending the Knowledge Base
+## Sample Output
 
-To add a new error type, create a new `.md` file in `rag_docs/` following this structure:
+```
+Loaded 11 knowledge base documents.
 
-```markdown
-# Error: <title>
+### PHI-3 DIAGNOSIS & REPAIR INSTRUCTIONS: ###
 
-## Symptoms
-- <what the user sees>
+1. Update AMD GPU drivers for RDNA2/ROCm compatibility
+2. Run nvidia-smi to verify driver installation
+3. Set GGML_VK_VISIBLE_DEVICES to control GPU visibility
+4. Set OLLAMA_NUM_GPU=0 to fall back to CPU inference
 
-## Root Causes
-- <why it happens>
-
-## Diagnosis
-- <how to investigate>
-
-## Resolution
-- <step-by-step fix>
+[Retrieved from: cuda_failure.md, gpu_detection.md]
 ```
 
-No code changes needed — `rag.py` automatically loads all `.md` files from `rag_docs/` on startup.
+## Project Structure
+
+```
+smartinstaller_AI/
+├── rag.py              <- main RAG pipeline
+└── rag_docs/           <- knowledge base (one .md file per error type)
+    ├── antivirus_block.md
+    ├── connection_refused.md
+    ├── cuda_failure.md
+    ├── disk_full.md
+    ├── gpu_detection.md
+    ├── missing_exe.md
+    ├── model_download.md
+    ├── path_error.md
+    ├── port_conflict.md
+    ├── proxy_issue.md
+    └── server_timeout.md
+```
 
 ## Errors Covered
 
@@ -119,3 +110,23 @@ No code changes needed — `rag.py` automatically loads all `.md` files from `ra
 | `model_download.md` | Model download interrupted |
 | `disk_full.md` | No space left on device |
 | `port_conflict.md` | Port 11434 already in use |
+
+## Extending the Knowledge Base
+
+Add a new `.md` file to `rag_docs/` — no code changes needed, it is loaded automatically on startup.
+
+```markdown
+# Error: <title>
+
+## Symptoms
+- <what the user sees>
+
+## Root Causes
+- <why it happens>
+
+## Diagnosis
+- <how to investigate>
+
+## Resolution
+- <step-by-step fix>
+```

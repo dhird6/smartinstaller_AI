@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -71,9 +72,19 @@ class MonitoringStateStore:
         state.last_updated = _utc_now()
         payload = json.dumps(state.to_dict(), indent=2)
         with self._lock:
-            tmp = self._path.with_suffix(".tmp")
-            tmp.write_text(payload, encoding="utf-8")
-            tmp.replace(self._path)
+            # Use a per-thread unique tmp name to avoid file-lock conflicts
+            # when multiple sessions write concurrently.
+            tmp = self._path.with_name(
+                f"{self._path.stem}.{os.getpid()}.{threading.get_ident()}.tmp"
+            )
+            try:
+                tmp.write_text(payload, encoding="utf-8")
+                tmp.replace(self._path)
+            finally:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def upsert_active(self, active: ActiveInstallationState) -> MonitoringPlatformState:
         state = self.load()

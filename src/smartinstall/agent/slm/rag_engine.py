@@ -43,6 +43,13 @@ _ERROR_LINE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Keywords that indicate an Autodesk-specific query — route to rag/ only
+_AUTODESK_KEYWORDS: frozenset[str] = frozenset({
+    "autodesk", "autocad", "revit", "inventor", "civil 3d", "navisworks",
+    "flexnet", "adsk", "adsklic", "adsklic ensingservice", "odis",
+    "autodesk access", "adlm", "lmtools", "lmgrd", "flexlm",
+})
+
 
 def extract_relevant_log_lines(log_text: str, *, tail: int = 40) -> str:
     """Filter to high-signal lines; fall back to the last `tail` lines."""
@@ -123,19 +130,32 @@ def default_rag_docs_path() -> Path:
     return (root / "rag_docs").resolve()
 
 
-def _load_documents(docs_path: Path) -> list[Document]:
-    """Load markdown docs from docs_path and also from sibling 'rag/' folder if present."""
+def _is_autodesk_query(text: str) -> bool:
+    """Return True if the query contains Autodesk-specific product or service names."""
+    lower = text.lower()
+    return any(kw in lower for kw in _AUTODESK_KEYWORDS)
+
+
+def _load_documents(docs_path: Path, input_text: str = "") -> list[Document]:
+    """Load markdown docs, routing to the correct KB folder based on query content.
+
+    - Autodesk queries  → only rag/  (33 Autodesk/generic docs)
+    - Everything else   → rag_docs/ first, then rag/ as fallback
+    """
     root = get_project_root()
+    rag_dir = (root / "rag").resolve()
     search_dirs: list[Path] = []
 
-    # Always include the explicitly configured path if it exists
-    if docs_path.is_dir():
-        search_dirs.append(docs_path.resolve())
-
-    # Also load from 'rag/' (generic + Autodesk KB) if it's a different folder
-    rag_dir = (root / "rag").resolve()
-    if rag_dir.is_dir() and rag_dir not in search_dirs:
-        search_dirs.append(rag_dir)
+    if _is_autodesk_query(input_text):
+        # Route Autodesk-specific queries exclusively to the Autodesk KB so that
+        # Ollama-specific docs (connection_refused, port_conflict) cannot outrank them.
+        if rag_dir.is_dir():
+            search_dirs.append(rag_dir)
+    else:
+        if docs_path.is_dir():
+            search_dirs.append(docs_path.resolve())
+        if rag_dir.is_dir() and rag_dir not in search_dirs:
+            search_dirs.append(rag_dir)
 
     if not search_dirs:
         raise FileNotFoundError(f"RAG docs directory not found: {docs_path}")
@@ -160,7 +180,7 @@ def run_rag_diagnosis(
     config: RagDiagnosisConfig,
 ) -> RagDiagnosisResult:
     """Run retrieval-augmented diagnosis against the local knowledge base."""
-    documents = _load_documents(config.docs_path.resolve())
+    documents = _load_documents(config.docs_path.resolve(), input_text=input_text)
     embeddings = OllamaEmbeddings(model=config.embedding_model)
     vector_store = Chroma.from_documents(documents=documents, embedding=embeddings)
     retriever = vector_store.as_retriever(search_kwargs={"k": config.top_k})

@@ -140,7 +140,7 @@ def evaluate_user_installation(
         return False, "no installer path"
 
     path_lower = str(target).lower()
-    if _is_system_managed_path(path_lower) and not _is_user_content_path(path_lower):
+    if _is_system_managed_path(path_lower) and not _is_user_pickup_location(path_lower):
         return False, "system-managed install location"
 
     if via_msiexec or process_name == "msiexec.exe":

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QRect, Qt
-from PySide6.QtWidgets import QApplication, QFrame, QMainWindow, QScrollArea, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QMainWindow, QScrollArea, QSizePolicy, QWidget
 
 
 def available_screen_geometry(widget: QWidget | None = None) -> QRect:
@@ -26,6 +26,31 @@ def configure_page_scroll(scroll: QScrollArea) -> None:
     scroll.setFrameShape(QFrame.Shape.NoFrame)
     scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+
+def configure_page_container(container: QWidget) -> None:
+    """Allow page content to shrink with the viewport — prevents horizontal overflow."""
+    container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+    container.setMinimumWidth(0)
+
+
+def layout_mode_for_width(width: int) -> str:
+    """Responsive breakpoints shared across dashboard-style pages."""
+    if width < 640:
+        return "single"
+    if width < 1040:
+        return "compact"
+    return "wide"
+
+
+def grid_columns_for_mode(mode: str, *, wide: int = 4, compact: int = 2) -> int:
+    """Map layout mode to a column count."""
+    if mode == "wide":
+        return wide
+    if mode == "compact":
+        return compact
+    return 1
 
 
 def fit_main_window(window: QMainWindow, *, width_ratio: float = 0.92, height_ratio: float = 0.90) -> None:

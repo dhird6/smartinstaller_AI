@@ -14,7 +14,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from smartinstall.ui.layout.responsive import configure_page_scroll
+from smartinstall.ui.layout.responsive import (
+    configure_page_container,
+    configure_page_scroll,
+    grid_columns_for_mode,
+    layout_mode_for_width,
+)
 
 from smartinstall.ui.components.enterprise_button import hero_outline_button, hero_primary_button
 from smartinstall.ui.components.feature_card import FeatureCard
@@ -49,16 +54,19 @@ class DashboardPage(QScrollArea):
         super().__init__(parent)
         self._palette = palette
         configure_page_scroll(self)
-        self._compact_layout = False
+        self._layout_mode = "compact"
         container = QWidget()
         container.setObjectName("dashContainer")
         container.setStyleSheet(f"QWidget#dashContainer {{ background: {palette.canvas}; }}")
+        configure_page_container(container)
         self.setWidget(container)
         self._root = QVBoxLayout(container)
         self._root.setContentsMargins(PAGE_MARGIN, PAGE_MARGIN - 8, PAGE_MARGIN, PAGE_MARGIN)
         self._root.setSpacing(PAGE_SPACING - 4)
 
         self._stats_host = QWidget()
+        self._stats_host.setMinimumWidth(0)
+        self._stats_host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._stats_grid = QGridLayout(self._stats_host)
         self._stats_grid.setSpacing(GRID_GAP)
         self._stats_grid.setContentsMargins(0, 0, 0, 0)
@@ -73,7 +81,13 @@ class DashboardPage(QScrollArea):
         self._monitoring_status_label = QLabel()
         self._ai_recommendations_host = QVBoxLayout()
         self._ai_recommendations_host.setSpacing(CARD_INNER_SPACING - 4)
+        self._last_stats_fingerprint = ""
         self._build_static()
+
+    def invalidate_cache(self) -> None:
+        """Force the next refresh to rebuild dashboard widgets."""
+        self._last_stats_fingerprint = ""
+        self.reflow_for_width(900)
 
     def _build_static(self) -> None:
         self._root.addWidget(self._build_hero())
@@ -88,14 +102,27 @@ class DashboardPage(QScrollArea):
         hero = QFrame()
         hero.setObjectName("dashHero")
         hero.setMinimumHeight(160)
-        hero.setMaximumHeight(240)
+        hero.setMinimumWidth(0)
+        hero.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         hero.setStyleSheet(hero_panel_stylesheet(p))
-        layout = QHBoxLayout(hero)
+        layout = QVBoxLayout(hero)
         layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(20)
+        layout.setSpacing(14)
 
-        text = QVBoxLayout()
-        text.setSpacing(10)
+        header_row = QHBoxLayout()
+        header_row.setSpacing(16)
+
+        logo = QLabel()
+        logo.setObjectName("heroLogo")
+        logo_pixmap = load_brand_logo_pixmap(52)
+        logo.setPixmap(logo_pixmap)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo.setFixedSize(56, 56)
+        logo.setScaledContents(not logo_pixmap.isNull())
+        header_row.addWidget(logo, alignment=Qt.AlignmentFlag.AlignTop)
+
+        title_col = QVBoxLayout()
+        title_col.setSpacing(6)
 
         badge = QLabel("CCTech · Enterprise AI Platform")
         badge.setObjectName("heroBadge")
@@ -103,6 +130,12 @@ class DashboardPage(QScrollArea):
 
         headline = QLabel("Smart Installer AI")
         headline.setObjectName("heroTitle")
+        headline.setWordWrap(True)
+
+        title_col.addWidget(badge)
+        title_col.addWidget(headline)
+        header_row.addLayout(title_col, stretch=1)
+        layout.addLayout(header_row)
 
         sub = QLabel(
             "Autonomous Windows installation monitoring, real-time evidence "
@@ -110,31 +143,25 @@ class DashboardPage(QScrollArea):
         )
         sub.setObjectName("heroSubtitle")
         sub.setWordWrap(True)
+        layout.addWidget(sub)
 
-        actions = QHBoxLayout()
-        actions.setSpacing(10)
+        self._hero_actions_host = QWidget()
+        self._hero_actions_host.setMinimumWidth(0)
+        self._hero_actions_layout = QVBoxLayout(self._hero_actions_host)
+        self._hero_actions_layout.setContentsMargins(0, 0, 0, 0)
+        self._hero_actions_layout.setSpacing(8)
+
         monitor_btn = hero_primary_button("View live monitoring", p, parent=hero)
         monitor_btn.clicked.connect(self.monitoring_requested.emit)
         center_btn = hero_outline_button("Installation Center", p, parent=hero)
         center_btn.clicked.connect(self.installation_center_requested.emit)
-        actions.addWidget(monitor_btn)
-        actions.addWidget(center_btn)
-        actions.addStretch(1)
-
-        text.addWidget(badge)
-        text.addWidget(headline)
-        text.addWidget(sub)
-        text.addSpacing(2)
-        text.addLayout(actions)
-        layout.addLayout(text, stretch=3)
-
-        logo = QLabel()
-        logo.setObjectName("heroLogo")
-        logo.setPixmap(load_brand_logo_pixmap(64))
-        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo.setFixedSize(72, 72)
-        logo.setScaledContents(False)
-        layout.addWidget(logo, alignment=Qt.AlignmentFlag.AlignVCenter)
+        for btn in (monitor_btn, center_btn):
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._hero_monitor_btn = monitor_btn
+        self._hero_center_btn = center_btn
+        self._hero_actions_layout.addWidget(monitor_btn)
+        self._hero_actions_layout.addWidget(center_btn)
+        layout.addWidget(self._hero_actions_host)
         return hero
 
     def _build_capabilities(self) -> QFrame:
@@ -146,6 +173,8 @@ class DashboardPage(QScrollArea):
         grid = QGridLayout()
         grid.setSpacing(GRID_GAP)
         grid.setContentsMargins(0, 0, 0, 0)
+        self._capabilities_grid = grid
+        self._feature_cards: list[FeatureCard] = []
         items = [
             ("⚡", "Installation automation",
              "One-click monitored installs with full evidence capture."),
@@ -156,18 +185,19 @@ class DashboardPage(QScrollArea):
             ("🔒", "Enterprise privacy",
              "Fully on-premises — no cloud dependency for AI diagnosis."),
         ]
+        cap_cols = grid_columns_for_mode(self._layout_mode, wide=2, compact=2)
         for i, (icon, title, desc) in enumerate(items):
-            grid.addWidget(
-                FeatureCard(icon=icon, title=title, description=desc, palette=p),
-                i // 2,
-                i % 2,
-            )
+            feature = FeatureCard(icon=icon, title=title, description=desc, palette=p)
+            self._feature_cards.append(feature)
+            grid.addWidget(feature, i // cap_cols, i % cap_cols)
         layout.addLayout(grid)
         return card
 
     def _build_three_column(self) -> QWidget:
         p = self._palette
         row = QWidget()
+        row.setMinimumWidth(0)
+        row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         row.setStyleSheet("background: transparent;")
         self._info_grid = QGridLayout(row)
         self._info_grid.setContentsMargins(0, 0, 0, 0)
@@ -206,42 +236,86 @@ class DashboardPage(QScrollArea):
         self._info_cards = (active_card, sessions_card, status_card, ai_card)
         for card in self._info_cards:
             card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._place_info_cards(compact=False)
+        self._place_info_cards(mode=self._layout_mode)
         return row
 
-    def _place_info_cards(self, *, compact: bool) -> None:
+    def _place_info_cards(self, *, mode: str) -> None:
         for card in self._info_cards:
             self._info_grid.removeWidget(card)
         cards = self._info_cards
-        if compact:
-            for idx, card in enumerate(cards):
-                self._info_grid.addWidget(card, idx // 2, idx % 2)
-            for col in range(2):
-                self._info_grid.setColumnStretch(col, 1)
-        else:
-            for idx, card in enumerate(cards):
-                self._info_grid.addWidget(card, 0, idx)
-            for col in range(4):
-                self._info_grid.setColumnStretch(col, 1)
+        cols = grid_columns_for_mode(mode, wide=4, compact=2)
+        for idx, card in enumerate(cards):
+            self._info_grid.addWidget(card, idx // cols, idx % cols)
+        for col in range(cols):
+            self._info_grid.setColumnStretch(col, 1)
 
     def reflow_for_width(self, width: int) -> None:
-        compact = width < 980
-        if compact == self._compact_layout:
+        mode = layout_mode_for_width(width)
+        if mode == self._layout_mode:
             return
-        self._compact_layout = compact
-        self._place_info_cards(compact=compact)
-        self._reflow_stats(compact=compact)
+        self._layout_mode = mode
+        self._place_info_cards(mode=mode)
+        self._reflow_stats(mode=mode)
+        self._reflow_feature_grid(mode=mode)
+        self._reflow_benefits_grid(mode=mode)
+        self._reflow_hero_actions(mode=mode)
 
-    def _reflow_stats(self, *, compact: bool) -> None:
+    def _reflow_stats(self, *, mode: str) -> None:
         if not self._stat_cards:
             return
         while self._stats_grid.count():
             item = self._stats_grid.takeAt(0)
             if item.widget():
                 self._stats_grid.removeWidget(item.widget())
-        cols = 2 if compact else 4
+        cols = grid_columns_for_mode(mode, wide=4, compact=2)
         for idx, card in enumerate(self._stat_cards):
             self._stats_grid.addWidget(card, idx // cols, idx % cols)
+
+    def _reflow_feature_grid(self, *, mode: str) -> None:
+        if not hasattr(self, "_capabilities_grid"):
+            return
+        while self._capabilities_grid.count():
+            item = self._capabilities_grid.takeAt(0)
+            if item.widget():
+                self._capabilities_grid.removeWidget(item.widget())
+        cols = grid_columns_for_mode(mode, wide=2, compact=2)
+        for idx, card in enumerate(self._feature_cards):
+            self._capabilities_grid.addWidget(card, idx // cols, idx % cols)
+
+    def _reflow_benefits_grid(self, *, mode: str) -> None:
+        if not hasattr(self, "_benefits_grid"):
+            return
+        while self._benefits_grid.count():
+            item = self._benefits_grid.takeAt(0)
+            if item.widget():
+                self._benefits_grid.removeWidget(item.widget())
+        cols = grid_columns_for_mode(mode, wide=2, compact=2)
+        for idx, cell in enumerate(self._benefit_cells):
+            self._benefits_grid.addWidget(cell, idx // cols, idx % cols)
+
+    def _reflow_hero_actions(self, *, mode: str) -> None:
+        if not hasattr(self, "_hero_actions_layout"):
+            return
+        while self._hero_actions_layout.count():
+            item = self._hero_actions_layout.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+        buttons = (self._hero_monitor_btn, self._hero_center_btn)
+        if mode == "wide":
+            row_host = QWidget()
+            row_host.setMinimumWidth(0)
+            row = QHBoxLayout(row_host)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(10)
+            for btn in buttons:
+                btn.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+                row.addWidget(btn)
+            row.addStretch(1)
+            self._hero_actions_layout.addWidget(row_host)
+        else:
+            for btn in buttons:
+                btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                self._hero_actions_layout.addWidget(btn)
 
     def _build_benefits(self) -> QFrame:
         p = self._palette
@@ -252,6 +326,8 @@ class DashboardPage(QScrollArea):
         grid = QGridLayout()
         grid.setSpacing(GRID_GAP)
         grid.setContentsMargins(0, 0, 0, 0)
+        self._benefits_grid = grid
+        self._benefit_cells: list[QFrame] = []
         benefits = (
             ("⚡", "Reduced MTTR",
              "Faster failure diagnosis with AI-guided remediation steps."),
@@ -262,14 +338,19 @@ class DashboardPage(QScrollArea):
             ("🏆", "Enterprise-grade UX",
              "Professional CCTech-branded experience built for IT teams."),
         )
+        ben_cols = grid_columns_for_mode(self._layout_mode, wide=2, compact=2)
         for i, (icon, title, desc) in enumerate(benefits):
-            grid.addWidget(self._benefit_cell(icon, title, desc), i // 2, i % 2)
+            cell = self._benefit_cell(icon, title, desc)
+            self._benefit_cells.append(cell)
+            grid.addWidget(cell, i // ben_cols, i % ben_cols)
         layout.addLayout(grid)
         return card
 
     def _benefit_cell(self, icon: str, title: str, desc: str) -> QFrame:
         p = self._palette
         cell = QFrame()
+        cell.setMinimumWidth(0)
+        cell.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         apply_card_style(cell, p, object_name="benefitCell")
         layout = QVBoxLayout(cell)
         layout.setContentsMargins(18, 16, 18, 18)
@@ -286,7 +367,29 @@ class DashboardPage(QScrollArea):
         layout.addWidget(desc_lbl)
         return cell
 
+    @staticmethod
+    def _stats_fingerprint(stats: DashboardStats) -> str:
+        active = ",".join(
+            f"{item.installer_name}:{item.stage}:{item.mode}"
+            for item in stats.active_installations
+        )
+        recent = ",".join(
+            f"{item.session_id}:{item.outcome}:{item.error_count}"
+            for item in stats.recent_sessions
+        )
+        recommendations = "|".join(stats.ai_recommendations)
+        return (
+            f"{stats.active_count}|{stats.failed}|{stats.successful}|{stats.total_sessions}|"
+            f"{stats.partial}|{int(stats.background_service_running)}|"
+            f"{int(stats.automatic_monitoring_enabled)}|{int(stats.ai_troubleshooting_enabled)}|"
+            f"{active}|{recent}|{recommendations}"
+        )
+
     def refresh(self, stats: DashboardStats) -> None:
+        fingerprint = self._stats_fingerprint(stats)
+        if fingerprint == self._last_stats_fingerprint:
+            return
+        self._last_stats_fingerprint = fingerprint
         p = self._palette
 
         while self._stats_grid.count():
@@ -323,7 +426,7 @@ class DashboardPage(QScrollArea):
             ),
         ]
         self._stat_cards = cards
-        cols = 2 if self._compact_layout else 4
+        cols = grid_columns_for_mode(self._layout_mode, wide=4, compact=2)
         for idx, card in enumerate(cards):
             card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             self._stats_grid.addWidget(card, idx // cols, idx % cols)
@@ -390,13 +493,16 @@ class DashboardPage(QScrollArea):
                 name_lbl.setStyleSheet(
                     f"color: {p.text_primary}; font-size: 9.5pt; border: none;"
                 )
-                issues_lbl = QLabel(f"{session.error_count} issue(s)")
-                issues_lbl.setStyleSheet(muted_stylesheet(p) + " border: none;")
+                meta_lbl = QLabel(
+                    f"{session.error_count} issue(s)"
+                    + (f"  ·  {self._format_timestamp(session.timestamp)}" if session.timestamp else "")
+                )
+                meta_lbl.setStyleSheet(muted_stylesheet(p) + " border: none;")
 
                 left = QVBoxLayout()
                 left.setSpacing(2)
                 left.addWidget(name_lbl)
-                left.addWidget(issues_lbl)
+                left.addWidget(meta_lbl)
 
                 pill = QLabel(session.outcome or "Unknown")
                 pill.setStyleSheet(
@@ -443,6 +549,15 @@ class DashboardPage(QScrollArea):
             lbl.setWordWrap(True)
             lbl.setStyleSheet(body_stylesheet(p))
             self._ai_recommendations_host.addWidget(lbl)
+
+    @staticmethod
+    def _format_timestamp(timestamp: str) -> str:
+        if not timestamp:
+            return ""
+        cleaned = timestamp.replace("T", " ").replace("Z", " UTC")
+        if len(cleaned) >= 16:
+            return cleaned[:16]
+        return cleaned
 
     @staticmethod
     def _clear_layout(layout: QVBoxLayout) -> None:

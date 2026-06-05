@@ -24,6 +24,13 @@ from smartinstall.core.models.requests import StartSessionRequest
 from smartinstall.ui.bridge.event_bridge import QtEventBridge
 from smartinstall.ui.models.chat_message import ChatMessage
 from smartinstall.ui.services.chat_formatter import ChatFormatter
+from smartinstall.ui.services.chat_prompt_validator import (
+    ChatPromptIntent,
+    ChatPromptValidation,
+    validate_chat_prompt,
+)
+from smartinstall.ui.services.report_resolver import find_latest_report
+from smartinstall.ui.workers.chat_rag_worker import ChatRagWorker
 from smartinstall.ui.workers.install_worker import InstallWorkflowWorker
 from smartinstall.ui.workers.slm_worker import SlmDiagnosisWorker
 from smartinstall.ui.workers.thread_lifecycle import stop_qthread, wire_worker_lifetime
@@ -41,17 +48,18 @@ class DesktopController(QObject):
         self._event_bridge = QtEventBridge(container.event_bus)
         self._install_worker: InstallWorkflowWorker | None = None
         self._slm_worker: SlmDiagnosisWorker | None = None
+        self._chat_rag_worker: ChatRagWorker | None = None
         self._busy = False
+        self._last_report_path: Path | None = None
 
         self.on_message: Callable[[ChatMessage], None] | None = None
+        self.on_install_started: Callable[[str], None] | None = None
         self.on_run_completed: Callable[[object], None] | None = None
         self.on_installation_complete: Callable[[dict], None] | None = None
         self.on_slm_completed: Callable[[str, list[str]], None] | None = None
         self._last_slm_answer: str = ""
         self._last_slm_sources: list[str] = []
         self._pending_completion: dict | None = None
-
-        self._event_bridge.status_update.connect(self._emit_status)
 
     @property
     def event_bridge(self) -> QtEventBridge:
@@ -67,33 +75,43 @@ class DesktopController(QObject):
     def show_welcome(self) -> None:
         self._emit(self._formatter.welcome())
 
+    def validate_input(self, text: str) -> ChatPromptValidation:
+        """Validate and classify a chat prompt before routing."""
+        return validate_chat_prompt(text)
+
     def handle_user_input(self, text: str, parent_widget: QWidget) -> None:
         if self._busy:
             self._emit(self._formatter.error_message("Please wait until the current workflow finishes."))
             return
 
-        normalized = text.strip()
-        if not normalized:
+        validation = validate_chat_prompt(text)
+        if not validation.valid:
+            if validation.error_message:
+                self._emit(self._formatter.validation_rejection(validation.error_message))
             return
 
-        lowered = normalized.lower()
-        if lowered == "list":
+        if validation.intent is ChatPromptIntent.COMMAND_LIST:
             self._list_installers()
             return
-        if lowered.startswith("install "):
-            installer_name = normalized[8:].strip()
-            if installer_name:
-                self.start_install(installer_name=installer_name)
-            else:
-                self.browse_and_install(parent_widget)
+        if validation.intent is ChatPromptIntent.COMMAND_HELP:
+            self._emit(self._formatter.help_message())
             return
-        if lowered in {"install", "browse"}:
+        if validation.intent is ChatPromptIntent.COMMAND_INSTALL:
+            self.start_install(installer_name=validation.installer_name or "")
+            return
+        if validation.intent is ChatPromptIntent.COMMAND_BROWSE:
             self.browse_and_install(parent_widget)
+            return
+        if validation.intent is ChatPromptIntent.DIAGNOSE_LAST:
+            self._start_chat_rag(validation.normalized, require_report=True)
+            return
+        if validation.intent is ChatPromptIntent.KNOWLEDGE_QUERY:
+            self._start_chat_rag(validation.normalized, require_report=False)
             return
 
         self._emit(
-            self._formatter.error_message(
-                "Unknown command. Try `list`, `install <file-name>`, or use Browse Installer."
+            self._formatter.validation_rejection(
+                "I couldn't route that prompt. Type `help` to see supported commands and questions."
             )
         )
 
@@ -143,6 +161,8 @@ class DesktopController(QObject):
 
     def start_install(self, *, installer_name: str) -> None:
         self._set_busy(True)
+        if self.on_install_started is not None:
+            self.on_install_started(installer_name)
         self._emit(
             self._formatter.status_update(f"Starting monitored installation for `{installer_name}`...")
         )
@@ -190,6 +210,8 @@ class DesktopController(QObject):
 
         args = subprocess.list2cmdline(["--scenario", str(scenario_file.resolve())])
         self._set_busy(True)
+        if self.on_install_started is not None:
+            self.on_install_started(test_app.name)
         self._emit(
             self._formatter.status_update(
                 f"Starting bundled test install — scenario `{scenario.scenario_id}`..."
@@ -197,6 +219,7 @@ class DesktopController(QObject):
         )
         stop_qthread(self._install_worker, wait_ms=5_000)
         stop_qthread(self._slm_worker, wait_ms=5_000)
+        stop_qthread(self._chat_rag_worker, wait_ms=5_000)
         self._install_worker = InstallWorkflowWorker(
             self._container,
             self._event_bridge,
@@ -216,6 +239,8 @@ class DesktopController(QObject):
 
     def start_install_from_path(self, installer_path: Path) -> None:
         self._set_busy(True)
+        if self.on_install_started is not None:
+            self.on_install_started(installer_path.name)
         self._emit(
             self._formatter.status_update(
                 f"Starting monitored installation from `{installer_path.name}`..."
@@ -227,8 +252,10 @@ class DesktopController(QObject):
         """Stop install and SLM threads before application exit."""
         stop_qthread(self._install_worker, wait_ms=wait_ms)
         stop_qthread(self._slm_worker, wait_ms=wait_ms)
+        stop_qthread(self._chat_rag_worker, wait_ms=wait_ms)
         self._install_worker = None
         self._slm_worker = None
+        self._chat_rag_worker = None
 
     def _start_install_worker(
         self,
@@ -238,6 +265,7 @@ class DesktopController(QObject):
     ) -> None:
         stop_qthread(self._install_worker, wait_ms=5_000)
         stop_qthread(self._slm_worker, wait_ms=5_000)
+        stop_qthread(self._chat_rag_worker, wait_ms=5_000)
 
         if installer_path is not None:
             self._install_worker = _ExplicitPathInstallWorker(
@@ -264,6 +292,7 @@ class DesktopController(QObject):
 
     def _on_install_succeeded(self, payload: object) -> None:
         run_result: AutomatedRunResult = payload  # type: ignore[assignment]
+        self._last_report_path = run_result.report_path.resolve()
         self._emit(
             self._formatter.installation_summary(
                 run_result.report,
@@ -345,6 +374,57 @@ class DesktopController(QObject):
     @staticmethod
     def _needs_slm_diagnosis(run_result: AutomatedRunResult) -> bool:
         return should_run_slm_diagnosis(run_result.report)
+
+    def _start_chat_rag(self, question: str, *, require_report: bool) -> None:
+        report_path = self._resolve_report_path()
+        if require_report and report_path is None:
+            self._emit(
+                self._formatter.error_message(
+                    "No installation report is available yet. Run a monitored install first, "
+                    "then ask about the last installation."
+                )
+            )
+            return
+
+        self._set_busy(True)
+        self._emit(self._formatter.status_update("Searching knowledge base and preparing answer..."))
+        stop_qthread(self._chat_rag_worker, wait_ms=5_000)
+        self._chat_rag_worker = ChatRagWorker(
+            question,
+            self._build_rag_config(),
+            report_path=report_path,
+            parent=self,
+        )
+        wire_worker_lifetime(
+            self._chat_rag_worker,
+            on_finished=lambda: setattr(self, "_chat_rag_worker", None),
+        )
+        self._chat_rag_worker.succeeded.connect(self._on_chat_rag_succeeded)
+        self._chat_rag_worker.failed.connect(self._on_chat_rag_failed)
+        self._chat_rag_worker.start()
+
+    def _on_chat_rag_succeeded(self, payload: object) -> None:
+        diagnosis: RagDiagnosisResult = payload  # type: ignore[assignment]
+        self._emit(self._formatter.knowledge_response(diagnosis.answer, diagnosis.sources))
+        self._set_busy(False)
+
+    def _on_chat_rag_failed(self, message: str) -> None:
+        self._emit(
+            self._formatter.error_message(
+                f"Knowledge-base lookup failed: {message}\n"
+                "Ensure Ollama is running and required models are installed."
+            )
+        )
+        self._set_busy(False)
+
+    def _resolve_report_path(self) -> Path | None:
+        if self._last_report_path is not None and self._last_report_path.is_file():
+            return self._last_report_path
+        latest = find_latest_report(self._config.reports_dir)
+        if latest is not None:
+            self._last_report_path = latest.resolve()
+            return self._last_report_path
+        return None
 
     def _list_installers(self) -> None:
         names = [item.file_name for item in self._discovery.list_installers()]

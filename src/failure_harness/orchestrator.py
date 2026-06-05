@@ -161,7 +161,9 @@ class HarnessOrchestrator:
                 productVersion="1.0.0",
                 callerTag=f"harness:{scenario.scenario_id}",
                 outputDirectory=str(output_root.resolve()),
-                additionalArgs=subprocess.list2cmdline(["--scenario", str(scenario_file)]),
+                additionalArgs=subprocess.list2cmdline(
+                    ["--scenario", str(scenario_file), "--console"]
+                ),
                 timeoutSeconds=scenario.install_timeout_seconds,
             )
 

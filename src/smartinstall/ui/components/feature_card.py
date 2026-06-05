@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout
 
 from smartinstall.ui.components.ui_card import apply_card_style
 from smartinstall.ui.theme.cctech_theme import (
@@ -30,6 +30,8 @@ class FeatureCard(QFrame):
         p = palette
         apply_card_style(self, p, object_name="featureCard")
         self.setMinimumHeight(132)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         root = QHBoxLayout(self)

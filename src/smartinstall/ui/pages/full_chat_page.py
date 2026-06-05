@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from smartinstall.ui.components.ui_card import PAGE_MARGIN, apply_card_style
+from smartinstall.ui.layout.responsive import configure_page_container
 from smartinstall.ui.resources.brand_assets import load_brand_logo_pixmap
 from smartinstall.ui.theme.cctech_theme import CCTechPalette, body_stylesheet, heading_stylesheet
 from smartinstall.ui.widgets.chat_panel import ChatPanel
@@ -19,17 +20,20 @@ class FullChatPage(QWidget):
         self._palette = palette
         self._chat: ChatPanel | None = None
         self._chat_slot: QVBoxLayout | None = None
+        self.setObjectName("fullChatPage")
+        configure_page_container(self)
         self._build_ui()
 
     def _build_ui(self) -> None:
         p = self._palette
-        self.setStyleSheet(f"background: {p.canvas};")
+        self.setStyleSheet(f"QWidget#fullChatPage {{ background: {p.canvas}; }}")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN)
         root.setSpacing(12)
 
         header = QFrame()
+        header.setMinimumWidth(0)
         header.setObjectName("fullChatHeader")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(4, 0, 4, 0)
@@ -46,8 +50,8 @@ class FullChatPage(QWidget):
         title = QLabel("AI Assistant")
         title.setStyleSheet(heading_stylesheet(p, size_pt=16))
         sub = QLabel(
-            "Ask about installations, errors, troubleshooting steps, or available installers — "
-            "like a ChatGPT workspace for your IT workflow."
+            "Conversational support for installation monitoring, error analysis, "
+            "and knowledge-base troubleshooting."
         )
         sub.setWordWrap(True)
         sub.setStyleSheet(body_stylesheet(p))
@@ -67,7 +71,7 @@ class FullChatPage(QWidget):
         err_layout.addWidget(self._error_label)
         root.addWidget(self._error_banner)
 
-        self._session_label = QLabel("Session: Ready — type a message below to start")
+        self._session_label = QLabel("Ready — send a message to begin")
         self._session_label.setWordWrap(True)
         self._session_label.setStyleSheet(
             f"""
@@ -84,6 +88,8 @@ class FullChatPage(QWidget):
         self._chat_frame = QFrame()
         apply_card_style(self._chat_frame, p, object_name="fullChatFrame")
         self._chat_frame.setMinimumHeight(240)
+        self._chat_frame.setMinimumWidth(0)
+        self._chat_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         chat_outer = QVBoxLayout(self._chat_frame)
         chat_outer.setContentsMargins(0, 0, 0, 0)
         chat_outer.setSpacing(0)

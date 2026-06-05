@@ -7,22 +7,34 @@ from PySide6.QtWidgets import QPushButton
 
 from smartinstall.ui.theme.cctech_theme import CCTechPalette
 
+_COMPACT_BTN_HEIGHT = 36
+
 
 def primary_button(text: str, palette: CCTechPalette, *, parent=None) -> QPushButton:
-    btn = QPushButton(text)
+    btn = QPushButton(text, parent)
     btn.setObjectName("primaryBtn")
-    btn.setMinimumHeight(44)
+    btn.setMinimumHeight(_COMPACT_BTN_HEIGHT)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     btn.setProperty("loading", False)
     return btn
 
 
 def secondary_button(text: str, palette: CCTechPalette, *, parent=None) -> QPushButton:
-    btn = QPushButton(text)
+    btn = QPushButton(text, parent)
     btn.setObjectName("secondaryBtn")
-    btn.setMinimumHeight(44)
+    btn.setMinimumHeight(_COMPACT_BTN_HEIGHT)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     return btn
+
+
+def page_primary_button(text: str, palette: CCTechPalette, *, parent=None) -> QPushButton:
+    """Filled primary action on light section cards."""
+    return primary_button(text, palette, parent=parent)
+
+
+def page_secondary_button(text: str, palette: CCTechPalette, *, parent=None) -> QPushButton:
+    """Outlined secondary action on light section cards."""
+    return secondary_button(text, palette, parent=parent)
 
 
 def hero_primary_button(text: str, palette: CCTechPalette, *, parent=None) -> QPushButton:
@@ -30,7 +42,7 @@ def hero_primary_button(text: str, palette: CCTechPalette, *, parent=None) -> QP
     p = palette
     btn = QPushButton(text, parent)
     btn.setObjectName("heroPrimary")
-    btn.setMinimumHeight(44)
+    btn.setMinimumHeight(_COMPACT_BTN_HEIGHT)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     btn.setStyleSheet(
         f"""
@@ -39,7 +51,8 @@ def hero_primary_button(text: str, palette: CCTechPalette, *, parent=None) -> QP
             color: #ffffff;
             border: none;
             border-radius: 8px;
-            padding: 11px 22px;
+            padding: 7px 16px;
+            font-size: 9.5pt;
             font-weight: 700;
         }}
         QPushButton:hover {{ background-color: {p.blue_500}; }}
@@ -53,21 +66,26 @@ def hero_outline_button(text: str, palette: CCTechPalette, *, parent=None) -> QP
     """Secondary CTA for dark hero panels."""
     btn = QPushButton(text, parent)
     btn.setObjectName("heroOutline")
-    btn.setMinimumHeight(44)
+    btn.setMinimumHeight(_COMPACT_BTN_HEIGHT)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     btn.setStyleSheet(
         """
-        QPushButton {
-            background-color: transparent;
+        QPushButton#heroOutline {
+            background-color: rgba(255, 255, 255, 0.14);
             color: #ffffff;
-            border: 1.5px solid rgba(255, 255, 255, 0.55);
+            border: 1.5px solid rgba(255, 255, 255, 0.82);
             border-radius: 8px;
-            padding: 11px 22px;
-            font-weight: 600;
+            padding: 7px 16px;
+            font-size: 9.5pt;
+            font-weight: 700;
         }
-        QPushButton:hover {
-            background-color: rgba(255, 255, 255, 0.1);
+        QPushButton#heroOutline:hover {
+            background-color: rgba(255, 255, 255, 0.22);
             border-color: #ffffff;
+            color: #ffffff;
+        }
+        QPushButton#heroOutline:pressed {
+            background-color: rgba(255, 255, 255, 0.3);
         }
         """
     )

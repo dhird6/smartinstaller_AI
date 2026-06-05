@@ -124,7 +124,6 @@ class CollapsibleChatPanel(QWidget):
         )
         layout.addWidget(self._context_label)
 
-        self._chat.prompt_chosen.connect(self.prompt_requested.emit)
         self._chat.setStyleSheet("background: transparent;")
         layout.addWidget(self._chat, stretch=1)
 

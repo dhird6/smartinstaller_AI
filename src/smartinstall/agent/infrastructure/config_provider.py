@@ -100,9 +100,24 @@ class SmartInstallConfig(BaseSettings):
         alias="enableWindowsNotifications",
     )
     minimize_to_tray: bool = Field(
-        default=True,
+        default=False,
         alias="minimizeToTray",
-        description="Closing the window hides to system tray instead of exiting",
+        description="When true, closing the window hides to the system tray instead of exiting",
+    )
+    confirm_exit_when_busy: bool = Field(
+        default=True,
+        alias="confirmExitWhenBusy",
+        description="Prompt before exit when a monitored installation is still in progress",
+    )
+    auto_launch_demo_install_on_startup: bool = Field(
+        default=False,
+        alias="autoLaunchDemoInstallOnStartup",
+        description="Automatically run bundled TestAppSetup demo after the desktop UI opens",
+    )
+    demo_install_scenario_id: str = Field(
+        default="disk_insufficient_space",
+        alias="demoInstallScenarioId",
+        description="Failure-harness scenario used for the startup demo install",
     )
     start_minimized_to_tray: bool = Field(
         default=False,

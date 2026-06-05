@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from smartinstall.agent.orchestration.automated_run_orchestrator import AutomatedRunResult
 from smartinstall.ui.components.ui_card import PAGE_MARGIN, PAGE_SPACING, apply_card_style
+from smartinstall.ui.layout.responsive import configure_page_container, configure_page_scroll
 from smartinstall.ui.services.slm_response_parser import partition_slm_answer
 from smartinstall.ui.theme.cctech_theme import CCTechPalette, body_stylesheet, heading_stylesheet, muted_stylesheet
 
@@ -33,8 +35,6 @@ class TroubleshootingPage(QScrollArea):
     def __init__(self, palette: CCTechPalette, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._palette = palette
-        from smartinstall.ui.layout.responsive import configure_page_scroll
-
         configure_page_scroll(self)
 
         self._container = QWidget()
@@ -42,11 +42,33 @@ class TroubleshootingPage(QScrollArea):
         self._container.setStyleSheet(
             f"QWidget#tshootContainer {{ background: {palette.canvas}; }}"
         )
+        configure_page_container(self._container)
         self.setWidget(self._container)
 
         self._layout = QVBoxLayout(self._container)
         self._layout.setContentsMargins(PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN)
         self._layout.setSpacing(PAGE_SPACING)
+
+        self._history_bar = QFrame()
+        self._history_bar.setObjectName("tshootHistoryBar")
+        self._history_bar.hide()
+        history_layout = QHBoxLayout(self._history_bar)
+        history_layout.setContentsMargins(0, 0, 0, 0)
+        history_layout.setSpacing(10)
+        history_label = QLabel("Installation history")
+        history_label.setStyleSheet(heading_stylesheet(palette, size_pt=10))
+        self._history_combo = QComboBox()
+        self._history_combo.setMinimumWidth(0)
+        self._history_combo.currentIndexChanged.connect(self._on_history_selected)
+        history_layout.addWidget(history_label)
+        history_layout.addWidget(self._history_combo, stretch=1)
+        self._layout.addWidget(self._history_bar)
+
+        self._content_host = QWidget()
+        self._content_layout = QVBoxLayout(self._content_host)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(PAGE_SPACING)
+        self._layout.addWidget(self._content_host, stretch=1)
 
         self._placeholder = QLabel(
             "Run an installation to populate failure analysis, root cause diagnosis, "
@@ -54,8 +76,62 @@ class TroubleshootingPage(QScrollArea):
         )
         self._placeholder.setWordWrap(True)
         self._placeholder.setStyleSheet(muted_stylesheet(palette) + " font-size: 11pt;")
-        self._layout.addWidget(self._placeholder)
-        self._layout.addStretch(1)
+        self._content_layout.addWidget(self._placeholder)
+        self._content_layout.addStretch(1)
+
+        self._run_history: list[AutomatedRunResult] = []
+        self._history_slm: dict[str, tuple[str | None, list[str] | None, str]] = {}
+        self._suppress_history_signal = False
+
+    def set_run_history(
+        self,
+        runs: list[AutomatedRunResult],
+        *,
+        slm_by_session: dict[str, tuple[str | None, list[str] | None, str]] | None = None,
+        selected_session_id: str | None = None,
+    ) -> None:
+        """Populate the session picker used when reviewing prior installs."""
+        self._run_history = list(runs)
+        if slm_by_session is not None:
+            self._history_slm = dict(slm_by_session)
+
+        self._suppress_history_signal = True
+        self._history_combo.clear()
+        if not runs:
+            self._history_bar.hide()
+            self._suppress_history_signal = False
+            return
+
+        for run in runs:
+            status = run.report.status
+            label = (
+                f"{run.discovered.file_name} — {status.installation_outcome}"
+                f"  ({status.end_timestamp or status.start_timestamp})"
+            )
+            self._history_combo.addItem(label, run.session.session_id)
+
+        self._history_bar.show()
+        target_index = 0
+        if selected_session_id:
+            for idx in range(self._history_combo.count()):
+                if self._history_combo.itemData(idx) == selected_session_id:
+                    target_index = idx
+                    break
+        self._history_combo.setCurrentIndex(target_index)
+        self._suppress_history_signal = False
+
+    def _on_history_selected(self, index: int) -> None:
+        if self._suppress_history_signal or index < 0 or index >= len(self._run_history):
+            return
+        run = self._run_history[index]
+        session_id = run.session.session_id
+        slm_answer, slm_sources, slm_status = self._history_slm.get(session_id, (None, None, "none"))
+        self.apply_run_result(
+            run,
+            slm_answer=slm_answer,
+            slm_sources=slm_sources,
+            slm_status=slm_status,
+        )
 
     def apply_run_result(
         self,
@@ -68,8 +144,8 @@ class TroubleshootingPage(QScrollArea):
         """Populate all troubleshooting sections from report + optional SLM output."""
         self._clear()
         if result is None:
-            self._layout.addWidget(self._placeholder)
-            self._layout.addStretch(1)
+            self._content_layout.addWidget(self._placeholder)
+            self._content_layout.addStretch(1)
             return
 
         report = result.report
@@ -82,7 +158,7 @@ class TroubleshootingPage(QScrollArea):
         page_title = "Installation Troubleshooting" if failed else "Installation Analysis"
         heading = QLabel(page_title)
         heading.setStyleSheet(heading_stylesheet(p, size_pt=16))
-        self._layout.addWidget(heading)
+        self._content_layout.addWidget(heading)
 
         sub = QLabel(
             f"Installer: <b>{report.status.installer.installer_name}</b>"
@@ -92,17 +168,17 @@ class TroubleshootingPage(QScrollArea):
         sub.setTextFormat(Qt.TextFormat.RichText)
         sub.setWordWrap(True)
         sub.setStyleSheet(body_stylesheet(p))
-        self._layout.addWidget(sub)
+        self._content_layout.addWidget(sub)
 
-        self._layout.addWidget(self._slm_status_banner(slm_status, slm_answer, failed))
+        self._content_layout.addWidget(self._slm_status_banner(slm_status, slm_answer, failed))
 
         meta = QLabel(
             f"Session: {report.status.session_id}  ·  Report: {result.report_path}"
         )
         meta.setWordWrap(True)
         meta.setStyleSheet(muted_stylesheet(p))
-        self._layout.addWidget(meta)
-        self._layout.addSpacing(6)
+        self._content_layout.addWidget(meta)
+        self._content_layout.addSpacing(6)
 
         # Section 0 — errors (report + SLM summary)
         errors_lines: list[str] = []
@@ -120,7 +196,7 @@ class TroubleshootingPage(QScrollArea):
             if not failed
             else "No structured errors in the report — see AI analysis below."
         )
-        self._layout.addWidget(
+        self._content_layout.addWidget(
             self._expandable(_SECTIONS[0][0], errors_text, icon=_SECTIONS[0][1], semantic=_SECTIONS[0][2])
         )
 
@@ -134,7 +210,7 @@ class TroubleshootingPage(QScrollArea):
                 else "Installation completed without a recorded failure reason."
             )
         )
-        self._layout.addWidget(
+        self._content_layout.addWidget(
             self._expandable(_SECTIONS[1][0], root_cause, icon=_SECTIONS[1][1], semantic=_SECTIONS[1][2])
         )
 
@@ -156,7 +232,7 @@ class TroubleshootingPage(QScrollArea):
             f"{len(report.evidence.registry_changes)} registry change(s)  ·  "
             f"{len(report.evidence.filesystem_changes)} filesystem change(s)"
         )
-        self._layout.addWidget(
+        self._content_layout.addWidget(
             self._expandable(
                 _SECTIONS[2][0],
                 "\n".join(rag_lines),
@@ -167,7 +243,7 @@ class TroubleshootingPage(QScrollArea):
 
         # Section 3 — AI recommendations (always show full SLM when available)
         ai_body = _format_ai_section(slm, slm_status=slm_status, failed=failed)
-        self._layout.addWidget(
+        self._content_layout.addWidget(
             self._expandable(
                 _SECTIONS[3][0],
                 ai_body,
@@ -177,7 +253,7 @@ class TroubleshootingPage(QScrollArea):
             )
         )
 
-        self._layout.addStretch(1)
+        self._content_layout.addStretch(1)
         self.verticalScrollBar().setValue(0)
 
     def _slm_status_banner(
@@ -321,8 +397,8 @@ class TroubleshootingPage(QScrollArea):
         return card
 
     def _clear(self) -> None:
-        while self._layout.count():
-            item = self._layout.takeAt(0)
+        while self._content_layout.count():
+            item = self._content_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 

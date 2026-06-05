@@ -1,7 +1,8 @@
-"""CCTech brand logo — loaded only from the project root images folder."""
+"""CCTech brand logo — project images folder, with frozen-bundle fallbacks."""
 
 from __future__ import annotations
 
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -9,6 +10,13 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 
 from smartinstall.agent.infrastructure.project_paths import get_project_root
+
+
+def _bundle_root() -> Path | None:
+    if not getattr(sys, "frozen", False):
+        return None
+    meipass = getattr(sys, "_MEIPASS", None)
+    return Path(meipass) if meipass else None
 
 _LOGO_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".ico")
 _LOGO_STEMS = ("logo", "Logo", "LOGO")
@@ -44,17 +52,22 @@ def _resolve_logo_in_directory(directory: Path) -> Path | None:
 
 @lru_cache(maxsize=1)
 def brand_kit_logo_path() -> Path | None:
-    """
-    Canonical CCTech logo: `<project_root>/images/logo.png`.
-
-    Does not use bundled SVG assets under assets/ or src/.
-    """
+    """Resolve CCTech logo beside the exe, in the project tree, or from PyInstaller bundle."""
     root = get_project_root()
-    explicit = [
+    candidates: list[Path] = [
         root / "images" / "logo.png",
         root / "image" / "logo.png",
     ]
-    for path in explicit:
+    bundle = _bundle_root()
+    if bundle is not None:
+        candidates.extend(
+            [
+                bundle / "images" / "logo.png",
+                bundle / "assets" / "images" / "logo.png",
+            ]
+        )
+
+    for path in candidates:
         if path.is_file():
             return path
 
@@ -62,6 +75,11 @@ def brand_kit_logo_path() -> Path | None:
         found = _resolve_logo_in_directory(root / folder_name)
         if found is not None:
             return found
+    if bundle is not None:
+        for folder_name in ("images", "assets/images"):
+            found = _resolve_logo_in_directory(bundle / folder_name)
+            if found is not None:
+                return found
     return None
 
 
@@ -100,13 +118,20 @@ def brand_kit_available() -> bool:
 
 def _load_pixmap(path: Path | None, size: int) -> QPixmap:
     if path is None or not path.is_file():
-        return QPixmap(size, size)
+        return _transparent_placeholder(size)
     pixmap = QPixmap(str(path))
     if pixmap.isNull():
-        return QPixmap(size, size)
+        return _transparent_placeholder(size)
     return pixmap.scaled(
         size,
         size,
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
+
+
+def _transparent_placeholder(size: int) -> QPixmap:
+    """Avoid uninitialized QPixmap pixels when no brand asset is available."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    return pixmap

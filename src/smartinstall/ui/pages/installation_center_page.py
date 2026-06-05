@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QComboBox, QFrame, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QComboBox, QFrame, QLabel, QScrollArea, QVBoxLayout, QWidget
 
-from smartinstall.ui.components.enterprise_button import hero_outline_button, hero_primary_button
+from smartinstall.ui.components.enterprise_button import page_primary_button, page_secondary_button
 from smartinstall.ui.components.ui_card import PAGE_MARGIN, PAGE_SPACING, section_card
+from smartinstall.ui.layout.responsive import configure_page_container, configure_page_scroll
 from smartinstall.ui.theme.cctech_theme import CCTechPalette, body_stylesheet, heading_stylesheet, muted_stylesheet
 
 
-class InstallationCenterPage(QWidget):
+class InstallationCenterPage(QScrollArea):
     """Dedicated page for manual (Mode 2) installer monitoring."""
 
     browse_requested = Signal()
@@ -21,18 +22,24 @@ class InstallationCenterPage(QWidget):
     def __init__(self, palette: CCTechPalette, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._palette = palette
-        self.setObjectName("installCenterPage")
-        self.setStyleSheet(f"QWidget#installCenterPage {{ background: {palette.canvas}; }}")
-        self._build_ui()
+        configure_page_scroll(self)
 
-    def _build_ui(self) -> None:
+        container = QWidget()
+        container.setObjectName("installCenterPage")
+        container.setStyleSheet(f"QWidget#installCenterPage {{ background: {palette.canvas}; }}")
+        configure_page_container(container)
+        self.setWidget(container)
+        self._build_ui(container)
+
+    def _build_ui(self, container: QWidget) -> None:
         p = self._palette
-        root = QVBoxLayout(self)
+        root = QVBoxLayout(container)
         root.setContentsMargins(PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN)
         root.setSpacing(PAGE_SPACING)
 
         title = QLabel("Installation Center")
         title.setStyleSheet(heading_stylesheet(p, size_pt=16))
+        title.setWordWrap(True)
         root.addWidget(title)
 
         subtitle = QLabel(
@@ -48,11 +55,11 @@ class InstallationCenterPage(QWidget):
         heading.setStyleSheet(heading_stylesheet(p, size_pt=12))
         layout.addWidget(heading)
 
-        browse = hero_primary_button("Browse installer", p, parent=card)
+        browse = page_primary_button("Browse installer", p, parent=card)
         browse.clicked.connect(self.browse_requested.emit)
-        upload = hero_outline_button("Upload to installers folder", p, parent=card)
+        upload = page_secondary_button("Upload to installers folder", p, parent=card)
         upload.clicked.connect(self.upload_requested.emit)
-        start = hero_outline_button("Start monitoring selected file", p, parent=card)
+        start = page_secondary_button("Start monitoring selected file", p, parent=card)
         start.clicked.connect(self.manual_monitor_requested.emit)
 
         for widget in (browse, upload, start):
@@ -92,10 +99,10 @@ class InstallationCenterPage(QWidget):
         test_layout.addWidget(test_body)
 
         self._scenario_combo = QComboBox(parent=test_card)
-        self._scenario_combo.setMinimumWidth(200)
+        self._scenario_combo.setMinimumWidth(0)
         test_layout.addWidget(self._scenario_combo)
 
-        test_btn = hero_primary_button("Run test install scenario", p, parent=test_card)
+        test_btn = page_primary_button("Run test install scenario", p, parent=test_card)
         test_btn.clicked.connect(self._emit_test_install)
         test_layout.addWidget(test_btn)
         root.addWidget(test_card)

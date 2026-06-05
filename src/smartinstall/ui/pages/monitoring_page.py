@@ -14,10 +14,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from smartinstall.ui.layout.responsive import configure_page_scroll
+from smartinstall.ui.layout.responsive import configure_page_container, configure_page_scroll, layout_mode_for_width
 
 from smartinstall.agent.orchestration.automated_run_orchestrator import AutomatedRunResult
-from smartinstall.ui.components.enterprise_button import hero_outline_button, hero_primary_button
+from smartinstall.ui.components.enterprise_button import page_primary_button, page_secondary_button
 from smartinstall.ui.components.install_visualizer import InstallVisualizer, InstallVisualState
 from smartinstall.ui.components.ui_card import PAGE_MARGIN, PAGE_SPACING, section_card
 from smartinstall.ui.theme.cctech_theme import CCTechPalette, body_stylesheet, heading_stylesheet, muted_stylesheet
@@ -49,6 +49,7 @@ class MonitoringPage(QScrollArea):
         self._palette = palette
         self._installation_status = "Ready"
         self._is_terminal = False
+        self._layout_mode = "wide"
         configure_page_scroll(self)
 
         container = QWidget()
@@ -56,19 +57,24 @@ class MonitoringPage(QScrollArea):
         container.setStyleSheet(
             f"QWidget#monContainer {{ background: {palette.canvas}; }}"
         )
+        configure_page_container(container)
         self.setWidget(container)
 
         root = QVBoxLayout(container)
         root.setContentsMargins(PAGE_MARGIN, PAGE_MARGIN - 8, PAGE_MARGIN, PAGE_MARGIN)
         root.setSpacing(PAGE_SPACING - 4)
 
-        # Top row: overview (left) + live logs (right) — vertical page, no horizontal columns.
-        top_row = QHBoxLayout()
-        top_row.setSpacing(12)
-        top_row.addWidget(self._build_overview_card(), stretch=2)
+        self._overview_card = self._build_overview_card()
         self._live_logs = LiveLogViewer(palette)
-        top_row.addWidget(self._titled_card("Live Activity", self._live_logs), stretch=3)
-        root.addLayout(top_row)
+        self._live_logs_card = self._titled_card("Live Activity", self._live_logs)
+        self._top_row_host = QWidget()
+        self._top_row_host.setMinimumWidth(0)
+        self._top_row_host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._top_row_layout = QVBoxLayout(self._top_row_host)
+        self._top_row_layout.setContentsMargins(0, 0, 0, 0)
+        self._top_row_layout.setSpacing(12)
+        root.addWidget(self._top_row_host)
+        self._place_top_row(mode=self._layout_mode)
 
         root.addWidget(self._build_timeline_card())
 
@@ -77,6 +83,32 @@ class MonitoringPage(QScrollArea):
         root.addWidget(self._assistance)
 
         root.addWidget(self._build_summary_bar())
+
+    def reflow_for_width(self, width: int) -> None:
+        mode = layout_mode_for_width(width)
+        if mode == self._layout_mode:
+            return
+        self._layout_mode = mode
+        self._place_top_row(mode=mode)
+
+    def _place_top_row(self, *, mode: str) -> None:
+        self._overview_card.setParent(self._top_row_host)
+        self._live_logs_card.setParent(self._top_row_host)
+        while self._top_row_layout.count():
+            item = self._top_row_layout.takeAt(0)
+            if item.layout() is not None:
+                nested = item.layout()
+                while nested.count():
+                    nested.takeAt(0)
+        if mode == "wide":
+            row = QHBoxLayout()
+            row.setSpacing(12)
+            row.addWidget(self._overview_card, stretch=2)
+            row.addWidget(self._live_logs_card, stretch=3)
+            self._top_row_layout.addLayout(row)
+        else:
+            self._top_row_layout.addWidget(self._overview_card)
+            self._top_row_layout.addWidget(self._live_logs_card)
 
     def _build_overview_card(self) -> QFrame:
         p = self._palette
@@ -144,11 +176,11 @@ class MonitoringPage(QScrollArea):
         self._summary_label.setStyleSheet(body_stylesheet(p))
         row.addWidget(self._summary_label, stretch=1)
 
-        details_btn = hero_outline_button("View Details", p, parent=bar)
+        details_btn = page_secondary_button("View Details", p, parent=bar)
         details_btn.clicked.connect(self.view_details_requested.emit)
-        export_btn = hero_outline_button("Export Logs", p, parent=bar)
+        export_btn = page_secondary_button("Export Logs", p, parent=bar)
         export_btn.clicked.connect(self.export_logs_requested.emit)
-        ts_btn = hero_primary_button("Open Troubleshooting", p, parent=bar)
+        ts_btn = page_primary_button("Open Troubleshooting", p, parent=bar)
         ts_btn.clicked.connect(self.open_troubleshooting_requested.emit)
         row.addWidget(details_btn)
         row.addWidget(export_btn)
@@ -228,6 +260,24 @@ class MonitoringPage(QScrollArea):
         self._summary_label.setText("No active installation.")
         self._assistance.reset_for_new_install()
 
+    def prepare_for_new_install(self, *, installer_name: str) -> None:
+        """Reset terminal state from a prior install before starting a new session."""
+        self._is_terminal = False
+        self._installation_status = "Ready"
+        self._progress.setValue(0)
+        self._progress.setStyleSheet("")
+        self._visualizer.set_state(InstallVisualState.BUSY)
+        self._status_label.setText(f"Starting: {installer_name}")
+        p = self._palette
+        self._status_label.setStyleSheet(
+            f"font-size: 12pt; font-weight: 700; color: {p.blue_600};"
+        )
+        self._stage_label.setText("Current phase: preparing")
+        self._process_label.setText("Process: —")
+        self._duration_label.setText("Start time: —")
+        self._summary_label.setText(f"Preparing monitored install for {installer_name}…")
+        self._timeline_label.setText("Waiting for installer launch…")
+
     def begin_monitoring(
         self,
         *,
@@ -237,18 +287,26 @@ class MonitoringPage(QScrollArea):
         mode: str = "manual",
     ) -> None:
         self._is_terminal = False
+        self._installation_status = "Detected"
         self._assistance.reset_for_new_install(installer_name=installer_name)
         self._live_logs.clear()
-        self._live_logs.append_line(f"Smart Installer detected: {installer_name}")
+        self._live_logs.append_line(f"── New session: {installer_name} ──")
+        self._live_logs.append_line(f"Smart Installer monitoring started ({mode})")
         if session_id:
             self._live_logs.append_line(f"Session ID: {session_id}")
         if pid:
             self.set_process_info(f"pid={pid}  ·  {mode}")
+        else:
+            self._process_label.setText("Process: —")
         self._status_label.setText(f"Monitoring: {installer_name}")
         p = self._palette
         self._status_label.setStyleSheet(
             f"font-size: 12pt; font-weight: 700; color: {p.blue_600};"
         )
+        self._progress.setValue(_STATUS_PROGRESS.get("Detected", 12))
+        self._progress.setStyleSheet("")
+        self._summary_label.setText(f"Monitoring {installer_name}…")
+        self._timeline_label.setText(f"•  Monitoring started for {installer_name}")
         self.set_installation_status("Detected")
         self._mark_running()
 

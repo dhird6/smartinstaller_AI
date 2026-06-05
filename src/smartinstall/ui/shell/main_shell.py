@@ -6,17 +6,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout, QWidget
 
 from smartinstall.agent.monitoring.completion_notifications import is_completion_notification
+from smartinstall.agent.windows.process_focus import focus_process_window
 from smartinstall.agent.monitoring.monitoring_state_store import MonitoringPlatformState
 from smartinstall.agent.orchestration.automated_run_orchestrator import AutomatedRunResult
 from smartinstall.agent.services.background_monitor_service import BackgroundMonitorService
 from smartinstall.agent.slm.diagnosis_policy import should_run_slm_diagnosis
 from smartinstall.agent.slm.rag_engine import RagDiagnosisResult
 from smartinstall.ui.controllers.desktop_controller import DesktopController
+from smartinstall.ui.dialogs.exit_confirm_dialog import ExitConfirmDialog
 from smartinstall.ui.dialogs.install_complete_dialog import InstallCompleteDialog
 from smartinstall.ui.dialogs.install_detected_dialog import InstallDetectedDialog
 from smartinstall.ui.dialogs.installation_details_dialog import InstallationDetailsDialog
@@ -26,6 +28,9 @@ from smartinstall.agent.monitoring.monitoring_state_store import (
     CompletedInstallationState,
 )
 from smartinstall.ui.models.chat_message import ChatMessage, ChatRole
+from smartinstall.ui.services.chat_prompt_validator import is_install_command_intent
+from smartinstall.ui.services.app_lifecycle import should_confirm_exit
+from smartinstall.ui.services.installation_history import load_recent_run_results, merge_run_history
 from smartinstall.ui.services.run_result_loader import load_run_result_from_report
 from smartinstall.ui.workers.slm_worker import SlmDiagnosisWorker
 from smartinstall.ui.workers.thread_lifecycle import stop_qthread, wire_worker_lifetime
@@ -90,6 +95,8 @@ class MainShell(QMainWindow):
         self._palette = palette
 
         self._last_run: AutomatedRunResult | None = None
+        self._run_history: list[AutomatedRunResult] = []
+        self._slm_history_by_session: dict[str, tuple[str | None, list[str] | None, str]] = {}
 
         self._last_slm_answer: str | None = None
 
@@ -123,6 +130,18 @@ class MainShell(QMainWindow):
         self._slm_worker: SlmDiagnosisWorker | None = None
         self._active_session_id: str = ""
         self._live_error_slm_armed: bool = False
+        self._last_platform_fingerprint = ""
+        self._pending_stage_message = ""
+        self._reflow_timer = QTimer(self)
+        self._reflow_timer.setSingleShot(True)
+        self._reflow_timer.setInterval(80)
+        self._reflow_timer.timeout.connect(self._reflow_responsive_pages)
+        self._stage_persist_timer = QTimer(self)
+        self._stage_persist_timer.setSingleShot(True)
+        self._stage_persist_timer.setInterval(500)
+        self._stage_persist_timer.timeout.connect(self._persist_pending_stage)
+        self._shutting_down = False
+        self._startup_demo_scheduled = False
 
         self._build_ui()
 
@@ -132,10 +151,57 @@ class MainShell(QMainWindow):
 
         self._refresh_dashboard()
 
+        self._load_run_history_from_disk()
         controller.show_welcome()
 
     def set_tray_controller(self, tray: object) -> None:
         self._tray = tray
+
+    def launch_startup_demo(self) -> None:
+        """
+        Sales/demo path: run bundled TestAppSetup immediately using the existing workflow.
+
+        Monitoring stays visible in SmartInstall; the TestApp console is brought to the foreground.
+        """
+        if self._startup_demo_scheduled or self._controller.is_busy:
+            return
+        config = self._controller._config  # noqa: SLF001
+        if not config.auto_launch_demo_install_on_startup:
+            return
+
+        scenario_id = str(config.demo_install_scenario_id or "disk_insufficient_space").strip()
+        if not scenario_id:
+            scenario_id = "disk_insufficient_space"
+
+        self._startup_demo_scheduled = True
+        self._navigate(self.PAGE_MONITORING)
+        self._monitoring.append_log("Demo mode: launching bundled TestAppSetup.exe for live monitoring…")
+        self._monitoring.set_busy("Demo install: TestAppSetup.exe")
+        self._controller.run_bundled_test_install(scenario_id)
+        QTimer.singleShot(
+            2500,
+            lambda: self._focus_demo_installer_window(),
+        )
+
+    def _focus_demo_installer_window(self) -> None:
+        focused = focus_process_window(
+            process_name="TestAppSetup.exe",
+            title_hint="TestApp Setup",
+            timeout_seconds=20.0,
+        )
+        if focused:
+            self._monitoring.append_log(
+                "TestAppSetup.exe is running — SmartInstall AI is monitoring in the background."
+            )
+            if self._tray is not None and hasattr(self._tray, "notify"):
+                self._tray.notify(  # type: ignore[union-attr]
+                    "SmartInstall AI demo",
+                    "TestAppSetup is running. SmartInstall is monitoring live in the app.",
+                )
+        else:
+            self._monitoring.append_log(
+                "Waiting for TestAppSetup.exe window — check Live Monitoring for progress."
+            )
 
     def _build_ui(self) -> None:
 
@@ -179,6 +245,7 @@ class MainShell(QMainWindow):
 
 
         content = QWidget()
+        content.setMinimumWidth(0)
 
         content_layout = QVBoxLayout(content)
 
@@ -223,7 +290,7 @@ class MainShell(QMainWindow):
 
         exit_action = QAction("E&xit", self)
 
-        exit_action.triggered.connect(self.close)
+        exit_action.triggered.connect(self.request_quit)
 
         file_menu.addAction(exit_action)
 
@@ -260,10 +327,9 @@ class MainShell(QMainWindow):
     def _wire_events(self) -> None:
 
         self._controller.on_message = self._on_chat_message
+        self._controller.on_install_started = self._on_install_started
 
         self._chat.message_submitted.connect(self._on_user_message)
-
-        self._chat.prompt_chosen.connect(self._on_prompt_chosen)
 
         self._controller.event_bridge.status_update.connect(self._on_status)
 
@@ -348,11 +414,17 @@ class MainShell(QMainWindow):
         super().showEvent(event)
         clamp_window_to_screen(self)
         self._floating_chat.reposition()
+        self._reflow_responsive_pages()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._floating_chat.reposition()
-        self._dashboard.reflow_for_width(self._content_width())
+        self._reflow_timer.start()
+
+    def _reflow_responsive_pages(self) -> None:
+        width = self._content_width()
+        self._dashboard.reflow_for_width(width)
+        self._monitoring.reflow_for_width(width)
 
     def _content_width(self) -> int:
         sidebar_w = self._sidebar.width() if self._sidebar is not None else 240
@@ -389,23 +461,11 @@ class MainShell(QMainWindow):
             self._floating_chat.raise_()
             self._floating_chat.reposition()
 
-        if index == self.PAGE_TROUBLESHOOTING and self._last_run is not None:
-            self._troubleshooting.apply_run_result(
-                self._last_run,
-                slm_answer=self._last_slm_answer,
-                slm_sources=self._last_slm_sources,
-                slm_status="ready" if self._last_slm_answer else "none",
-            )
+        if index == self.PAGE_DASHBOARD:
+            self._reflow_responsive_pages()
 
-
-
-    def _on_prompt_chosen(self, text: str) -> None:
-
-        if self._current_page != self.PAGE_FULL_CHAT and not self._floating_chat.is_open:
-
-            self._floating_chat.open_compact()
-
-        self._on_user_message(text)
+        if index == self.PAGE_TROUBLESHOOTING:
+            self._sync_troubleshooting_history()
 
 
 
@@ -414,8 +474,10 @@ class MainShell(QMainWindow):
         self._chat.append_message(ChatMessage(role=ChatRole.USER, content=text))
 
         on_full_chat = self._current_page == self.PAGE_FULL_CHAT
+        validation = self._controller.validate_input(text)
+        starts_install = validation.valid and is_install_command_intent(validation.intent)
 
-        if not on_full_chat:
+        if not on_full_chat and starts_install:
             self._monitoring.set_busy("Installation in progress…")
             self._navigate(self.PAGE_MONITORING)
 
@@ -435,7 +497,6 @@ class MainShell(QMainWindow):
         self._chat.set_input_enabled(not self._controller.is_busy)
 
         if message.role is ChatRole.SYSTEM:
-            self._monitoring.append_log(message.content)
             lower = message.content.lower()
             if any(tok in lower for tok in ("error", "failed", "failure", "exception")):
                 self._full_chat.show_error_notice(message.content)
@@ -450,15 +511,89 @@ class MainShell(QMainWindow):
         self._full_chat.set_context(short)
         if self._active_session_id or self._controller.is_busy:
             self._monitoring.set_busy(message)
-        self._monitoring.append_log(message)
         if self._background_service is not None and self._active_session_id:
-            state = self._background_service.state_store.load()
-            for item in state.active_installations:
-                if item.session_id == self._active_session_id:
-                    item.stage = message[:120]
+            self._pending_stage_message = message[:120]
+            self._stage_persist_timer.start()
+
+    def _persist_pending_stage(self) -> None:
+        if self._background_service is None or not self._active_session_id:
+            return
+        stage = self._pending_stage_message
+        if not stage:
+            return
+        state = self._background_service.state_store.load()
+        updated = False
+        for item in state.active_installations:
+            if item.session_id == self._active_session_id and item.stage != stage:
+                item.stage = stage
+                updated = True
+        if updated:
             self._background_service.state_store.save(state)
 
 
+
+    def _load_run_history_from_disk(self) -> None:
+        config = self._controller._config  # noqa: SLF001
+        self._run_history = load_recent_run_results(config.reports_dir)
+        if self._run_history:
+            self._last_run = self._run_history[0]
+        self._sync_troubleshooting_history()
+
+    def _register_completed_run(
+        self,
+        result: AutomatedRunResult,
+        *,
+        slm_answer: str | None = None,
+        slm_sources: list[str] | None = None,
+        slm_status: str = "none",
+    ) -> None:
+        self._run_history = merge_run_history(self._run_history, result)
+        session_id = result.session.session_id
+        self._slm_history_by_session[session_id] = (slm_answer, slm_sources, slm_status)
+        self._last_run = result
+        self._dashboard.invalidate_cache()
+        self._last_platform_fingerprint = ""
+        self._sync_troubleshooting_history(selected_session_id=session_id)
+
+    def _sync_troubleshooting_history(self, *, selected_session_id: str | None = None) -> None:
+        session_id = selected_session_id
+        if session_id is None and self._last_run is not None:
+            session_id = self._last_run.session.session_id
+        self._troubleshooting.set_run_history(
+            self._run_history,
+            slm_by_session=self._slm_history_by_session,
+            selected_session_id=session_id,
+        )
+        target_run = None
+        if session_id:
+            for run in self._run_history:
+                if run.session.session_id == session_id:
+                    target_run = run
+                    break
+        if target_run is None and self._run_history:
+            target_run = self._run_history[0]
+        if target_run is None:
+            self._troubleshooting.apply_run_result(None)
+            return
+        slm_answer, slm_sources, slm_status = self._slm_history_by_session.get(
+            target_run.session.session_id,
+            (None, None, "none"),
+        )
+        self._troubleshooting.apply_run_result(
+            target_run,
+            slm_answer=slm_answer,
+            slm_sources=slm_sources,
+            slm_status=slm_status,
+        )
+
+    def _on_install_started(self, installer_name: str) -> None:
+        """Prepare UI for a new monitored install after a previous one finished."""
+        self._active_session_id = ""
+        self._live_error_slm_armed = False
+        self._full_chat.clear_error_notice()
+        self._monitoring.prepare_for_new_install(installer_name=installer_name)
+        self._floating_chat.set_context(f"Installing: {installer_name}")
+        self._full_chat.set_context(f"Installing: {installer_name}")
 
     def _refresh_dashboard(self, platform_state: MonitoringPlatformState | None = None) -> None:
         config = self._controller._config  # noqa: SLF001
@@ -473,12 +608,16 @@ class MainShell(QMainWindow):
 
     def _on_platform_state(self, state: object) -> None:
         if isinstance(state, MonitoringPlatformState):
-            self._refresh_dashboard(state)
+            from smartinstall.ui.workers.background_sync_worker import platform_state_fingerprint
+
+            fingerprint = platform_state_fingerprint(state)
+            if fingerprint != self._last_platform_fingerprint:
+                self._last_platform_fingerprint = fingerprint
+                self._refresh_dashboard(state)
             if self._tray is not None and hasattr(self._tray, "update_from_state"):
                 self._tray.update_from_state(state)  # type: ignore[union-attr]
             if state.active_installations:
                 active = state.active_installations[0]
-                busy_msg = f"Monitoring {active.installer_name}"
                 if not self._active_session_id:
                     self._monitoring.begin_monitoring(
                         installer_name=active.installer_name,
@@ -486,12 +625,12 @@ class MainShell(QMainWindow):
                         pid=active.pid,
                         mode=active.mode,
                     )
-                self._monitoring.set_busy(busy_msg)
-                self._monitoring.set_stage(active.stage)
-                self._monitoring.set_process_info(f"pid={active.pid}  ·  {active.mode}")
-                self._monitoring.set_start_time(active.started_at)
-                if self._current_page != self.PAGE_MONITORING:
-                    self._monitoring.append_log(f"[auto] {busy_msg} — {active.stage}")
+                if self._current_page == self.PAGE_MONITORING:
+                    busy_msg = f"Monitoring {active.installer_name}"
+                    self._monitoring.set_busy(busy_msg)
+                    self._monitoring.set_stage(active.stage)
+                    self._monitoring.set_process_info(f"pid={active.pid}  ·  {active.mode}")
+                    self._monitoring.set_start_time(active.started_at)
 
     def _bring_to_front(self) -> None:
         self.showNormal()
@@ -504,7 +643,6 @@ class MainShell(QMainWindow):
     def _on_live_monitoring_started(self, payload: dict) -> None:
         """First popup per install: live monitoring has started (Explorer or Installation Center)."""
         session_id = str(payload.get("sessionId", ""))
-        installer_name = str(payload.get("installerName", "installer"))
         if not session_id:
             return
         if session_id in self._live_monitoring_sessions:
@@ -512,9 +650,11 @@ class MainShell(QMainWindow):
         self._live_monitoring_sessions.add(session_id)
         self._active_session_id = session_id
         self._live_error_slm_armed = False
+        installer_name = str(payload.get("installerName", "installer"))
 
         detail = str(payload.get("detail", ""))
         mode = str(payload.get("mode", "automatic"))
+        user_initiated = mode == "manual" and self._controller.is_busy
         mode_label = (
             "Automatic (installer launched outside Smart Installer)"
             if mode in {"automatic", "passive"}
@@ -529,6 +669,8 @@ class MainShell(QMainWindow):
             pid=pid,
             mode=mode,
         )
+        if "testapp" in installer_name.lower():
+            QTimer.singleShot(1500, self._focus_demo_installer_window)
         if started_at:
             self._monitoring.set_start_time(started_at)
         busy = f"Live monitoring: {installer_name}"
@@ -544,15 +686,16 @@ class MainShell(QMainWindow):
                 f"Monitoring {installer_name} in real time.",
             )
 
-        dialog = InstallDetectedDialog(
-            self._palette,
-            installer_name=installer_name,
-            detail=detail,
-            mode_label=mode_label,
-            parent=self,
-        )
-        dialog.view_monitoring.connect(lambda: self._navigate(self.PAGE_MONITORING))
-        dialog.exec()
+        if not user_initiated:
+            dialog = InstallDetectedDialog(
+                self._palette,
+                installer_name=installer_name,
+                detail=detail,
+                mode_label=mode_label,
+                parent=self,
+            )
+            dialog.view_monitoring.connect(lambda: self._navigate(self.PAGE_MONITORING))
+            dialog.exec()
 
     def _on_installation_error_logged(self, payload: dict) -> None:
         message = str(payload.get("message", "Installation error"))
@@ -774,10 +917,15 @@ class MainShell(QMainWindow):
         slm_answer: str | None = None,
         slm_sources: list[str] | None = None,
     ) -> None:
-        self._last_run = result
         if slm_answer:
             self._last_slm_answer = slm_answer
             self._last_slm_sources = slm_sources or []
+        self._register_completed_run(
+            result,
+            slm_answer=slm_answer,
+            slm_sources=slm_sources,
+            slm_status="ready" if slm_answer else "none",
+        )
 
         outcome = result.report.status.installation_outcome.lower()
         if outcome in {"success", "completed"}:
@@ -787,16 +935,61 @@ class MainShell(QMainWindow):
         else:
             self._monitoring.apply_run_result(result)
 
-        self._troubleshooting.apply_run_result(
-            result,
-            slm_answer=slm_answer,
-            slm_sources=slm_sources,
-            slm_status="ready" if slm_answer else "none",
-        )
         self._refresh_dashboard()
         ctx = result.discovered.file_name
         self._floating_chat.set_context(ctx)
         self._full_chat.set_context(ctx)
+
+    def _active_installation_count(self) -> int:
+        if self._background_service is None:
+            return 0
+        state = self._background_service.state_store.load()
+        return len(state.active_installations)
+
+    def _should_confirm_exit(self) -> bool:
+        config = self._controller._config  # noqa: SLF001
+        return should_confirm_exit(
+            confirm_when_busy=config.confirm_exit_when_busy,
+            controller_busy=self._controller.is_busy,
+            active_session_id=self._active_session_id,
+            active_installation_count=self._active_installation_count(),
+        )
+
+    def _confirm_exit(self) -> bool:
+        dialog = ExitConfirmDialog(
+            self._palette,
+            detail=(
+                "A monitored installation is still running. Exiting now will stop live "
+                "monitoring and any in-progress AI diagnosis.\n\n"
+                "Choose <b>Stay</b> to keep SmartInstall AI running, or "
+                "<b>Exit anyway</b> to close the application."
+            ),
+            parent=self,
+        )
+        return dialog.exec() == ExitConfirmDialog.DialogCode.Accepted
+
+    def request_quit(self) -> None:
+        """Exit the application after optional confirmation and graceful shutdown."""
+        if self._shutting_down:
+            return
+        if self._should_confirm_exit() and not self._confirm_exit():
+            return
+        self._finalize_shutdown()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
+
+    def ensure_shutdown(self) -> None:
+        """Idempotent cleanup hook for QApplication.aboutToQuit."""
+        self._finalize_shutdown()
+
+    def _finalize_shutdown(self) -> None:
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+        self._shutdown_workers()
+        if self._tray is not None and hasattr(self._tray, "shutdown"):
+            self._tray.shutdown()  # type: ignore[union-attr]
 
     def closeEvent(self, event) -> None:  # noqa: N802
         if self._controller._config.minimize_to_tray:  # noqa: SLF001
@@ -808,8 +1001,8 @@ class MainShell(QMainWindow):
                     "Still monitoring in the background. Double-click the tray icon to reopen.",
                 )
             return
-        self._shutdown_workers()
-        super().closeEvent(event)
+        event.ignore()
+        self.request_quit()
 
     def _shutdown_workers(self) -> None:
         if self._sync_worker is not None:
@@ -818,6 +1011,7 @@ class MainShell(QMainWindow):
         stop_qthread(self._slm_worker, wait_ms=60_000)
         self._slm_worker = None
         self._controller.shutdown_workers(wait_ms=60_000)
+        self._controller.event_bridge.detach()
         if self._background_service is not None:
             self._background_service.stop()
 
@@ -837,13 +1031,12 @@ class MainShell(QMainWindow):
 
     ) -> None:
 
-        self._last_run = result
-
-        self._last_slm_answer = slm_answer
-
-        self._last_slm_sources = slm_sources or []
+        if slm_answer:
+            self._last_slm_answer = slm_answer
+            self._last_slm_sources = slm_sources or []
 
         outcome = result.report.status.installation_outcome.lower()
+        slm_status = "running"
 
         if outcome in {"success", "completed"}:
 
@@ -863,11 +1056,17 @@ class MainShell(QMainWindow):
             self._monitoring.apply_run_result(result)
 
         needs_slm = self._controller._config.auto_run_slm and self._needs_slm_for_result(result)  # noqa: SLF001
-        self._troubleshooting.apply_run_result(
+        if needs_slm and not slm_answer:
+            slm_status = "running"
+        elif slm_answer:
+            slm_status = "ready"
+        else:
+            slm_status = "none"
+        self._register_completed_run(
             result,
             slm_answer=slm_answer,
             slm_sources=slm_sources,
-            slm_status="running" if needs_slm and not slm_answer else ("ready" if slm_answer else "none"),
+            slm_status=slm_status,
         )
         from smartinstall.agent.slm.diagnosis_policy import actionable_install_errors
 
@@ -899,12 +1098,9 @@ class MainShell(QMainWindow):
         self._last_slm_sources = sources
         self._monitoring.assistance_panel.apply_slm(answer)
         if self._last_run is not None:
-            self._troubleshooting.apply_run_result(
-                self._last_run,
-                slm_answer=answer,
-                slm_sources=sources,
-                slm_status="ready",
-            )
+            session_id = self._last_run.session.session_id
+            self._slm_history_by_session[session_id] = (answer, sources, "ready")
+            self._sync_troubleshooting_history(selected_session_id=session_id)
 
     @staticmethod
     def _needs_slm_for_result(result: AutomatedRunResult) -> bool:

@@ -32,6 +32,12 @@ def ensure_bundled_assets() -> Path:
 
     _copy_if_missing(bundle / "installers" / "TestAppSetup.exe", installers_dir / "TestAppSetup.exe")
 
+    logo_src = bundle / "images" / "logo.png"
+    if logo_src.is_file():
+        images_dir = root / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        _copy_if_missing(logo_src, images_dir / "logo.png")
+
     scenarios_src = bundle / "failure_harness" / "config" / "scenarios"
     scenarios_dest = root / "failure_harness" / "config" / "scenarios"
     if scenarios_src.is_dir():

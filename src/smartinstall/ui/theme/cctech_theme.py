@@ -154,10 +154,10 @@ def hero_panel_stylesheet(p: CCTechPalette) -> str:
         color: #ffffff;
         border: none;
         border-radius: 8px;
-        padding: 11px 22px;
-        font-size: 10pt;
+        padding: 7px 16px;
+        font-size: 9.5pt;
         font-weight: 700;
-        min-height: 44px;
+        min-height: 36px;
     }}
     QPushButton#heroPrimary:hover {{
         background-color: {p.blue_500};
@@ -166,17 +166,17 @@ def hero_panel_stylesheet(p: CCTechPalette) -> str:
         background-color: #1848cc;
     }}
     QPushButton#heroOutline {{
-        background-color: transparent;
+        background-color: rgba(255, 255, 255, 0.14);
         color: #ffffff;
-        border: 1.5px solid rgba(255, 255, 255, 0.55);
+        border: 1.5px solid rgba(255, 255, 255, 0.82);
         border-radius: 8px;
-        padding: 11px 22px;
-        font-size: 10pt;
-        font-weight: 600;
-        min-height: 44px;
+        padding: 7px 16px;
+        font-size: 9.5pt;
+        font-weight: 700;
+        min-height: 36px;
     }}
     QPushButton#heroOutline:hover {{
-        background-color: rgba(255, 255, 255, 0.1);
+        background-color: rgba(255, 255, 255, 0.22);
         border-color: #ffffff;
     }}
     """
@@ -353,8 +353,10 @@ QPushButton#primaryBtn {{
     color: {p.text_inverse};
     border: none;
     border-radius: 8px;
-    padding: 10px 22px;
+    padding: 7px 16px;
+    font-size: 9.5pt;
     font-weight: 700;
+    min-height: 36px;
 }}
 QPushButton#primaryBtn:hover {{
     background: {p.blue_500};
@@ -371,8 +373,10 @@ QPushButton#secondaryBtn {{
     color: {p.blue_600};
     border: 1.5px solid {p.blue_600};
     border-radius: 8px;
+    font-size: 9.5pt;
     font-weight: 700;
-    padding: 10px 20px;
+    padding: 7px 16px;
+    min-height: 36px;
 }}
 QPushButton#secondaryBtn:hover {{
     background: #eff4ff;

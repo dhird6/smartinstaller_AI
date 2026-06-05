@@ -5,6 +5,8 @@ __pycache__/
 .eggs/
 dist/
 build/
+release/
+*.zip
 .venv/
 venv/
 .env

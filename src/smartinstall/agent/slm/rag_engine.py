@@ -6,6 +6,8 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
+from typing import Any
 
 from langchain_chroma import Chroma
 from langchain_classic.chains import create_retrieval_chain
@@ -56,6 +58,10 @@ _ERROR_LINE_PATTERN = re.compile(
 )
 
 # Keywords that indicate an Autodesk-specific query — route to rag/ only
+_cache_lock = Lock()
+_doc_cache: dict[str, tuple[float, list[Document]]] = {}
+_retriever_cache: dict[str, Any] = {}
+
 _AUTODESK_KEYWORDS: frozenset[str] = frozenset({
     "autodesk", "autocad", "revit", "inventor", "civil 3d", "navisworks",
     "flexnet", "adsk", "adsklic", "adsklic ensingservice", "odis",
@@ -152,19 +158,16 @@ def _is_autodesk_query(text: str) -> bool:
     return any(kw in lower for kw in _AUTODESK_KEYWORDS)
 
 
-def _load_documents(docs_path: Path, input_text: str = "") -> list[Document]:
-    """Load markdown docs, routing to the correct KB folder based on query content.
+def _docs_route_key(docs_path: Path, input_text: str) -> str:
+    route = "autodesk" if _is_autodesk_query(input_text) else "default"
+    return f"{docs_path.resolve()}|{route}"
 
-    - Autodesk queries  → only rag/  (33 Autodesk/generic docs)
-    - Everything else   → rag_docs/ first, then rag/ as fallback
-    """
+
+def _search_dirs_for_query(docs_path: Path, input_text: str) -> list[Path]:
     root = get_project_root()
     rag_dir = (root / "rag").resolve()
     search_dirs: list[Path] = []
-
     if _is_autodesk_query(input_text):
-        # Route Autodesk-specific queries exclusively to the Autodesk KB so that
-        # Ollama-specific docs (connection_refused, port_conflict) cannot outrank them.
         if rag_dir.is_dir():
             search_dirs.append(rag_dir)
     else:
@@ -172,7 +175,64 @@ def _load_documents(docs_path: Path, input_text: str = "") -> list[Document]:
             search_dirs.append(docs_path.resolve())
         if rag_dir.is_dir() and rag_dir not in search_dirs:
             search_dirs.append(rag_dir)
+    return search_dirs
 
+
+def _folders_mtime_signature(search_dirs: list[Path]) -> float:
+    total = 0.0
+    for folder in search_dirs:
+        if not folder.is_dir():
+            continue
+        for md_file in folder.glob("*.md"):
+            try:
+                total += md_file.stat().st_mtime
+            except OSError:
+                continue
+    return total
+
+
+def _cached_documents(docs_path: Path, input_text: str) -> list[Document]:
+    search_dirs = _search_dirs_for_query(docs_path, input_text)
+    if not search_dirs:
+        raise FileNotFoundError(f"RAG docs directory not found: {docs_path}")
+    cache_key = _docs_route_key(docs_path, input_text)
+    signature = _folders_mtime_signature(search_dirs)
+    with _cache_lock:
+        cached = _doc_cache.get(cache_key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+    documents = _load_documents(docs_path, input_text=input_text)
+    with _cache_lock:
+        _doc_cache[cache_key] = (signature, documents)
+    return documents
+
+
+def _retriever_cache_key(documents: list[Document], embedding_model: str) -> str:
+    sources = tuple(sorted(str(doc.metadata.get("source", "")) for doc in documents))
+    return f"{embedding_model}|{sources}"
+
+
+def _get_retriever(documents: list[Document], config: RagDiagnosisConfig):
+    cache_key = _retriever_cache_key(documents, config.embedding_model)
+    with _cache_lock:
+        cached = _retriever_cache.get(cache_key)
+        if cached is not None:
+            return cached
+    embeddings = OllamaEmbeddings(model=config.embedding_model)
+    vector_store = Chroma.from_documents(documents=documents, embedding=embeddings)
+    retriever = vector_store.as_retriever(search_kwargs={"k": max(config.top_k, 3)})
+    with _cache_lock:
+        _retriever_cache[cache_key] = retriever
+    return retriever
+
+
+def _load_documents(docs_path: Path, input_text: str = "") -> list[Document]:
+    """Load markdown docs, routing to the correct KB folder based on query content.
+
+    - Autodesk queries  → only rag/  (33 Autodesk/generic docs)
+    - Everything else   → rag_docs/ first, then rag/ as fallback
+    """
+    search_dirs = _search_dirs_for_query(docs_path, input_text)
     if not search_dirs:
         raise FileNotFoundError(f"RAG docs directory not found: {docs_path}")
 
@@ -213,11 +273,9 @@ def run_rag_diagnosis(
     config: RagDiagnosisConfig,
 ) -> RagDiagnosisResult:
     """Run retrieval-augmented diagnosis against the local knowledge base."""
-    all_documents = _load_documents(config.docs_path.resolve(), input_text=input_text)
+    all_documents = _cached_documents(config.docs_path.resolve(), input_text)
     documents = _documents_for_retrieval(all_documents, input_text)
-    embeddings = OllamaEmbeddings(model=config.embedding_model)
-    vector_store = Chroma.from_documents(documents=documents, embedding=embeddings)
-    retriever = vector_store.as_retriever(search_kwargs={"k": max(config.top_k, 3)})
+    retriever = _get_retriever(documents, config)
 
     llm = OllamaLLM(model=config.llm_model, temperature=config.temperature)
     system_prompt = (
@@ -259,3 +317,66 @@ def diagnose_report(
     prompt_input = build_input_from_report_path(report_path)
     diagnosis = run_rag_diagnosis(prompt_input, config)
     return diagnosis
+
+
+def build_chat_prompt_input(
+    question: str,
+    *,
+    report_path: Path | None = None,
+) -> str:
+    """Combine a user question with optional installation report evidence."""
+    cleaned = question.strip()
+    if report_path is not None and report_path.is_file():
+        evidence = build_input_from_report_path(report_path)
+        return (
+            "USER QUESTION:\n"
+            f"{cleaned}\n\n"
+            "INSTALLATION EVIDENCE (from the latest monitored run):\n"
+            f"{evidence}"
+        )
+    return (
+        "USER QUESTION:\n"
+        f"{cleaned}\n\n"
+        "TASK: Answer using the knowledge base. Focus on Windows installer troubleshooting."
+    )
+
+
+def run_chat_diagnosis(
+    input_text: str,
+    config: RagDiagnosisConfig,
+) -> RagDiagnosisResult:
+    """Run retrieval-augmented chat against the local knowledge base."""
+    all_documents = _cached_documents(config.docs_path.resolve(), input_text)
+    documents = _documents_for_retrieval(all_documents, input_text)
+    retriever = _get_retriever(documents, config)
+
+    llm = OllamaLLM(model=config.llm_model, temperature=config.temperature)
+    system_prompt = (
+        "You are SmartInstall AI, a Windows software installation troubleshooting assistant.\n"
+        "Answer the user's question using the documentation context and any installation evidence.\n"
+        "Stay focused on installer errors, diagnostics, fixes, and Smart Installer capabilities.\n"
+        "Prefer knowledge-base guidance when it matches the question.\n"
+        "If context documents are unrelated, answer from installation evidence or general installer best practices.\n"
+        "Never suggest installing Ollama or fixing Smart Installer AI unless the evidence mentions those tools.\n"
+        "Respond clearly with these sections when applicable:\n"
+        "1) Error Summary\n"
+        "2) Root Cause\n"
+        "3) Recommended Fix (numbered steps)\n"
+        "If evidence is insufficient, say what additional data is needed.\n\n"
+        "Documentation Context:\n{context}"
+    )
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            ("human", "{input}"),
+        ]
+    )
+    qa_chain = create_stuff_documents_chain(llm, prompt)
+    rag_chain = create_retrieval_chain(retriever, qa_chain)
+    result = rag_chain.invoke({"input": input_text})
+    sources = [str(doc.metadata.get("source", "unknown")) for doc in result.get("context", [])]
+    return RagDiagnosisResult(
+        answer=str(result.get("answer", "")),
+        sources=sources,
+        prompt_input=input_text,
+    )

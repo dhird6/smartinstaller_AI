@@ -25,6 +25,7 @@ class StatCard(QFrame):
         p = palette
         apply_card_style(self, p, object_name="statCard")
         self.setMinimumHeight(96)
+        self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 

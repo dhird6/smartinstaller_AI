@@ -14,14 +14,10 @@ class ChatFormatter:
     def welcome() -> ChatMessage:
         return ChatMessage(
             role=ChatRole.ASSISTANT,
-            title="Welcome",
+            title="SmartInstall AI",
             content=(
-                "Welcome to SmartInstall AI.\n\n"
-                "You can:\n"
-                "- Type `install <installer-name>` (example: `install mingw-get-setup.exe`)\n"
-                "- Type `list` to see installers in the installers folder\n"
-                "- Use **Browse Installer** to pick any .exe or .msi file\n\n"
-                "I will monitor installation, collect diagnostics, and run local AI troubleshooting."
+                "I can help with installation monitoring, error analysis, and "
+                "knowledge-base troubleshooting. Send a message to get started."
             ),
         )
 
@@ -109,6 +105,34 @@ class ChatFormatter:
     @staticmethod
     def error_message(message: str) -> ChatMessage:
         return ChatMessage(role=ChatRole.ASSISTANT, title="Error", content=message)
+
+    @staticmethod
+    def validation_rejection(message: str) -> ChatMessage:
+        return ChatMessage(role=ChatRole.ASSISTANT, title="Invalid Prompt", content=message)
+
+    @staticmethod
+    def help_message() -> ChatMessage:
+        return ChatMessage(
+            role=ChatRole.ASSISTANT,
+            title="Help",
+            content=(
+                "SmartInstall AI can help with Windows installer monitoring and troubleshooting.\n\n"
+                "Commands:\n"
+                "- `list` — show installers in the installers folder\n"
+                "- `install <file-name>` — run a monitored installation\n"
+                "- `install` or `browse` — pick an installer file\n\n"
+                "Questions I can answer from the knowledge base:\n"
+                "- \"How do I fix exit code 1603?\"\n"
+                "- \"What went wrong with the last installation?\"\n"
+                "- \"Summarize errors from the latest run\"\n\n"
+                "After a monitored install, I automatically analyze failures using local AI "
+                "and show structured troubleshooting on the Troubleshooting page."
+            ),
+        )
+
+    @staticmethod
+    def knowledge_response(answer: str, sources: list[str]) -> ChatMessage:
+        return ChatFormatter.slm_diagnosis(answer, sources)
 
     @staticmethod
     def _top_error(errors: list[ReportErrorEntry]) -> ReportErrorEntry | None:

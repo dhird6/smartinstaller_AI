@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from failure_harness.engine import FailureInjectionEngine
@@ -13,38 +13,78 @@ from failure_harness.models import ScenarioConfig
 from failure_harness.scenario_manager import ScenarioManager
 
 
-def _print_install_progress(step: int, total: int, message: str) -> None:
-    print(f"[{step}/{total}] {message}", flush=True)
+def _emit_step(
+    step: int,
+    total: int,
+    message: str,
+    *,
+    quiet: bool,
+    on_step: Callable[[int, int, str], None] | None,
+) -> None:
+    if not quiet:
+        print(f"[{step}/{total}] {message}", flush=True)
+    if on_step is not None:
+        on_step(step, total, message)
 
 
-def run_install_simulation(scenario: ScenarioConfig, *, quiet: bool = False) -> int:
+def _emit_log(
+    message: str,
+    *,
+    quiet: bool,
+    is_error: bool = False,
+    on_log: Callable[[str], None] | None = None,
+) -> None:
+    if not quiet:
+        stream = sys.stderr if is_error else sys.stdout
+        print(message, file=stream, flush=True)
+    if on_log is not None:
+        on_log(message)
+
+
+def run_install_simulation(
+    scenario: ScenarioConfig,
+    *,
+    quiet: bool = False,
+    on_step: Callable[[int, int, str], None] | None = None,
+    on_log: Callable[[str, bool], None] | None = None,
+) -> int:
     """Simulate installation steps then inject configured failures."""
     total_steps = 5
-    if not quiet:
-        _print_install_progress(1, total_steps, "Initializing TestApp Setup v1.0.0...")
-        time.sleep(0.3)
-        _print_install_progress(2, total_steps, "Checking system prerequisites...")
-        time.sleep(0.3)
-        _print_install_progress(3, total_steps, "Preparing installation directory...")
-        time.sleep(0.2)
+
+    def log_fn(message: str, *, is_error: bool = False) -> None:
+        if on_log is not None:
+            on_log(message, is_error)
+        else:
+            _emit_log(message, quiet=quiet, is_error=is_error)
+
+    _emit_step(1, total_steps, "Initializing TestApp Setup v1.0.0...", quiet=quiet, on_step=on_step)
+    time.sleep(0.35)
+    _emit_step(2, total_steps, "Checking system prerequisites...", quiet=quiet, on_step=on_step)
+    time.sleep(0.35)
+    _emit_step(3, total_steps, "Preparing installation directory...", quiet=quiet, on_step=on_step)
+    time.sleep(0.25)
 
     engine = FailureInjectionEngine(random_seed=scenario.random_seed)
     result = engine.execute_scenario(scenario)
 
-    if not quiet:
-        _print_install_progress(4, total_steps, "Installing application components...")
+    _emit_step(4, total_steps, "Installing application components...", quiet=quiet, on_step=on_step)
 
     for injection in result.injections:
         for line in injection.stdout_lines:
-            print(line, flush=True)
+            log_fn(line, is_error=False)
         for line in injection.stderr_lines:
-            print(line, file=sys.stderr, flush=True)
+            log_fn(line, is_error=True)
 
-    if not quiet:
-        if result.final_exit_code == 0:
-            _print_install_progress(5, total_steps, "Installation completed successfully.")
-        else:
-            _print_install_progress(5, total_steps, f"Installation failed (exit code {result.final_exit_code}).")
+    if result.final_exit_code == 0:
+        _emit_step(5, total_steps, "Installation completed successfully.", quiet=quiet, on_step=on_step)
+    else:
+        _emit_step(
+            5,
+            total_steps,
+            f"Installation failed (exit code {result.final_exit_code}).",
+            quiet=quiet,
+            on_step=on_step,
+        )
 
     return result.final_exit_code
 
@@ -67,6 +107,11 @@ def main(argv: list[str] | None = None) -> int:
         "--quiet",
         action="store_true",
         help="Suppress progress output (failures still emitted)",
+    )
+    parser.add_argument(
+        "--console",
+        action="store_true",
+        help="Use console output instead of the graphical installer window",
     )
     parser.add_argument(
         "--list-scenarios",
@@ -92,7 +137,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         scenario = manager.load_scenario(args.scenario)
 
-    return run_install_simulation(scenario, quiet=args.quiet)
+    if args.quiet or args.console:
+        return run_install_simulation(scenario, quiet=args.quiet)
+
+    from failure_harness.installer_gui import run_installer_gui
+
+    return run_installer_gui(scenario)
 
 
 if __name__ == "__main__":

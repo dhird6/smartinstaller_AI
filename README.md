@@ -76,11 +76,13 @@ python background_service.py
 
 Runs installer detection, evidence collection, Windows notifications, and writes `sessions/monitoring_state.json` for dashboard sync (also started automatically with `python desktop.py` when `autoMonitorEnabled` is true).
 
-### System tray (always-on)
+### System tray (optional)
 
-- Close the dashboard → app stays in the **system tray** (`minimizeToTray`: true by default).
+- **Default (production):** closing the window **exits** SmartInstall AI (`minimizeToTray`: false).
+- **Tray mode:** set `"minimizeToTray": true` in `config/smartinstall.config.json` to keep monitoring in the system tray when the dashboard is closed.
 - Start tray-only: `python desktop.py --tray`
 - Tray menu: open dashboard, live monitoring, pause/resume auto-detect, auto-start at login, view last failure.
+- If an installation is in progress, **File → Exit** and the close button prompt before quitting (`confirmExitWhenBusy`: true).
 
 ### Windows Service (SCM)
 
@@ -173,6 +175,10 @@ pytest
 ```
 
 Output: `dist\SmartInstallAI.exe`
+
+**Brand logo:** place your file at `images/logo.png` before building — it is bundled into the EXE and copied beside it on first run.
+
+**Sales demo (default on):** when `autoLaunchDemoInstallOnStartup` is `true`, the desktop app opens **Live Monitoring**, runs bundled `TestAppSetup.exe`, and brings the TestApp window to the foreground. `TestAppSetup.exe` now shows a **graphical setup window** (progress bar, steps, activity log) styled like SmartInstall AI. Disable auto-demo in `config/smartinstall.config.json` when you no longer need it.
 
 If you see `ModuleNotFoundError: langchain_classic.chains.retrieval`, rebuild with the latest
 `packaging\SmartInstallAI.spec` (LangChain uses lazy imports that PyInstaller must bundle explicitly).

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -15,7 +15,7 @@ from smartinstall.agent.notifications.win_app_id import ensure_windows_toast_app
 from smartinstall.agent.services.background_monitor_service import BackgroundMonitorService
 from smartinstall.agent.windows.auto_start import enable_auto_start, is_auto_start_enabled
 from smartinstall.ui.controllers.desktop_controller import DesktopController
-from smartinstall.ui.resources.brand_assets import load_brand_logo_pixmap
+from smartinstall.ui.resources.brand_assets import clear_brand_asset_cache, load_brand_logo_pixmap
 from smartinstall.ui.shell.main_shell import MainShell
 from smartinstall.ui.shell.splash_screen import SplashScreen
 from smartinstall.ui.shell.system_tray import SystemTrayController
@@ -43,6 +43,7 @@ def run_desktop(config_path: Path | None = None, *, start_in_tray: bool = False)
 
     splash.set_status("Loading configuration…")
     ensure_bundled_assets()
+    clear_brand_asset_cache()
     container = build_container(config_path)
     if not start_in_tray:
         app.processEvents()
@@ -71,6 +72,8 @@ def run_desktop(config_path: Path | None = None, *, start_in_tray: bool = False)
         app=app,
     )
     shell.set_tray_controller(tray)
+    app.setQuitOnLastWindowClosed(not container.config.minimize_to_tray)
+    app.aboutToQuit.connect(shell.ensure_shutdown)
 
     def on_run_completed(payload: object) -> None:
         shell.on_run_completed(payload)  # type: ignore[arg-type]
@@ -94,11 +97,17 @@ def run_desktop(config_path: Path | None = None, *, start_in_tray: bool = False)
             shell.raise_()
             shell.activateWindow()
 
+    def _schedule_startup_demo() -> None:
+        config = container.config
+        if start_in_tray or not config.auto_launch_demo_install_on_startup:
+            return
+        QTimer.singleShot(1600, shell.launch_startup_demo)
+
     if start_in_tray:
         _show_main()
     else:
         splash.set_status("Preparing dashboard…")
-        splash.finish_after(_show_main, ms=1200)
+        splash.finish_after(lambda: (_show_main(), _schedule_startup_demo()), ms=1200)
     return app.exec()
 
 

@@ -63,8 +63,10 @@ class SidebarNav(QFrame):
         logo_row = QHBoxLayout()
         logo_row.setSpacing(12)
         self._logo = QLabel()
-        self._logo.setPixmap(load_brand_logo_pixmap(40))
+        sidebar_logo = load_brand_logo_pixmap(40)
+        self._logo.setPixmap(sidebar_logo)
         self._logo.setFixedSize(40, 40)
+        self._logo.setScaledContents(not sidebar_logo.isNull())
         self._logo.setStyleSheet("background: transparent;")
         logo_row.addWidget(self._logo, alignment=Qt.AlignmentFlag.AlignVCenter)
 

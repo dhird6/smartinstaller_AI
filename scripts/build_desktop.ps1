@@ -22,8 +22,9 @@ $buildTestApp = Join-Path $projectRoot "failure_harness\scripts\build_test_insta
 if (Test-Path $buildTestApp) {
     Write-Host "Building bundled TestAppSetup.exe..."
     & $buildTestApp -SkipInstall
-    if (-not (Test-Path (Join-Path $projectRoot "installers\TestAppSetup.exe"))) {
-        Write-Error "TestAppSetup.exe build failed — required for bundled desktop EXE."
+    $testAppPath = Join-Path $projectRoot "installers\TestAppSetup.exe"
+    if (-not (Test-Path $testAppPath)) {
+        Write-Error "TestAppSetup.exe build failed - required for bundled desktop EXE."
     }
 }
 

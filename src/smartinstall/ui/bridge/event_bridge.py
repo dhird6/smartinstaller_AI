@@ -64,7 +64,6 @@ class QtEventBridge(QObject):
             stage = payload.get("stage")
             if stage:
                 self.stage_changed.emit(str(stage))
-                self.status_update.emit(str(stage))
             return
         if event is AgentEvent.INSTALLER_DETECTED:
             name = payload.get("installerName", "installer")

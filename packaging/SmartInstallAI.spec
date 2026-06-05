@@ -30,6 +30,10 @@ _assets_images = project_root / "assets" / "images"
 if _assets_images.is_dir():
     added_datas.append((str(_assets_images), "assets/images"))
 
+_brand_logo = project_root / "images" / "logo.png"
+if _brand_logo.is_file():
+    added_datas.append((str(_brand_logo), "images"))
+
 # langchain_classic uses lazy __getattr__ imports — PyInstaller misses them unless listed.
 _chromadb_hidden = [
     m for m in collect_submodules("chromadb") if not m.startswith("chromadb.test")

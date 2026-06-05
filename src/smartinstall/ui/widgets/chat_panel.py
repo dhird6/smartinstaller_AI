@@ -1,4 +1,4 @@
-"""Enterprise chat panel — welcome, prompts, timestamps, typing indicator."""
+"""Enterprise chat panel — message history, composer, and typing indicator."""
 
 from __future__ import annotations
 
@@ -23,21 +23,10 @@ from smartinstall.ui.resources.brand_assets import load_brand_logo_pixmap
 from smartinstall.ui.theme.cctech_theme import CCTechPalette
 from smartinstall.ui.widgets.avatar_label import AvatarLabel, icon_pixmap
 
-_SUGGESTED_PROMPTS = (
-    "What went wrong with the last installation?",
-    "Summarize errors from the latest run",
-    "How do I fix exit code 1603?",
-    "list available installers",
-    "install mingw-get-setup.exe",
-    "What can Smart Installer AI do?",
-)
-
-
 class ChatPanel(QWidget):
-    """Scrollable chat with welcome screen, quick actions, and rich bubbles."""
+    """Scrollable chat with a clean empty state, composer, and rich message bubbles."""
 
     message_submitted = Signal(str)
-    prompt_chosen = Signal(str)
 
     def __init__(
         self,
@@ -53,7 +42,6 @@ class ChatPanel(QWidget):
         self._welcome_visible = True
         self._welcome_title: QLabel | None = None
         self._welcome_sub: QLabel | None = None
-        self._welcome_prompts_label: QLabel | None = None
         self._composer: QFrame | None = None
         self._typing_row: QWidget | None = None
         self._typing_timer: QTimer | None = None
@@ -83,18 +71,6 @@ class ChatPanel(QWidget):
         self._scroll_area.setWidget(self._history_container)
         root.addWidget(self._scroll_area, stretch=1)
 
-        quick = QHBoxLayout()
-        quick.setContentsMargins(14, 6, 14, 4)
-        quick.setSpacing(6)
-        for label in ("Install", "List", "Help"):
-            chip = QPushButton(label)
-            chip.setObjectName("promptChip")
-            chip.setCursor(Qt.CursorShape.PointingHandCursor)
-            chip.clicked.connect(lambda checked=False, t=label: self._quick_action(t))
-            quick.addWidget(chip)
-        quick.addStretch(1)
-        root.addLayout(quick)
-
         composer = QFrame()
         self._composer = composer
         composer.setObjectName("composerBar")
@@ -104,7 +80,7 @@ class ChatPanel(QWidget):
 
         self._input = QLineEdit()
         self._input.setObjectName("composerInput")
-        self._input.setPlaceholderText("Message SmartInstall AI…")
+        self._input.setPlaceholderText("Ask about installations, errors, or troubleshooting…")
         self._input.returnPressed.connect(self._submit)
         if dark:
             self._input.setStyleSheet(
@@ -144,34 +120,7 @@ class ChatPanel(QWidget):
         )
         composer_layout.addWidget(send_button)
 
-        chip_style = (
-            f"""
-            QPushButton#promptChip {{
-                background: rgba(255,255,255,0.08);
-                color: {p.text_inverse};
-                border: 1px solid rgba(255,255,255,0.22);
-                border-radius: 14px;
-                padding: 6px 14px;
-                font-size: 9pt;
-                font-weight: 600;
-            }}
-            QPushButton#promptChip:hover {{
-                background: rgba(30, 91, 255, 0.18);
-            }}
-            """
-            if dark
-            else f"""
-            QPushButton#promptChip {{
-                background: {p.surface_muted};
-                color: {p.blue_600};
-                border: 1px solid {p.border};
-                border-radius: 14px;
-                padding: 6px 14px;
-                font-weight: 600;
-            }}
-            """
-        )
-        self.setStyleSheet(self._panel_stylesheet(chip_style))
+        self.setStyleSheet(self._panel_stylesheet())
 
         if dark:
             composer.setStyleSheet(
@@ -182,52 +131,38 @@ class ChatPanel(QWidget):
         root.addWidget(composer)
 
     def _show_welcome(self) -> None:
-        p = self._palette
-        dark = self._variant == "dark"
         card = QFrame()
         card.setObjectName("welcomeCard")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(28, 36, 28, 36)
+        layout.setSpacing(10)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         logo_row = QHBoxLayout()
         logo_row.setSpacing(8)
         logo_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
         co = QLabel()
-        co.setPixmap(load_brand_logo_pixmap(48))
+        co.setPixmap(load_brand_logo_pixmap(44))
         logo_row.addWidget(co)
         layout.addLayout(logo_row)
 
-        title = QLabel("Welcome to SmartInstall AI")
+        title = QLabel("SmartInstall AI")
         self._welcome_title = title
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet(self._welcome_title_style())
 
         sub = QLabel(
-            "Ask questions about installation errors, diagnostics, and fixes. "
-            "I can list installers, run monitored installs, and explain troubleshooting results."
+            "Your installation and troubleshooting assistant. "
+            "Send a message to get started."
         )
         self._welcome_sub = sub
         sub.setWordWrap(True)
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(self._welcome_sub_style())
+        sub.setMaximumWidth(360)
 
         layout.addWidget(title)
         layout.addWidget(sub)
-
-        prompts_label = QLabel("Suggested prompts")
-        self._welcome_prompts_label = prompts_label
-        prompts_label.setStyleSheet(self._welcome_prompts_label_style())
-        layout.addWidget(prompts_label)
-
-        for prompt in _SUGGESTED_PROMPTS:
-            btn = QPushButton(prompt)
-            btn.setObjectName("suggestedPrompt")
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda checked=False, t=prompt: self._use_prompt(t))
-            btn.setStyleSheet(self._suggested_prompt_style_for(p, dark=dark))
-            layout.addWidget(btn)
 
         self._welcome_card = card
         self._apply_welcome_card_style()
@@ -237,14 +172,6 @@ class ChatPanel(QWidget):
         if self._welcome_visible and hasattr(self, "_welcome_card"):
             self._welcome_card.hide()
             self._welcome_visible = False
-
-    def _use_prompt(self, text: str) -> None:
-        self._input.setText(text)
-        self.prompt_chosen.emit(text)
-
-    def _quick_action(self, action: str) -> None:
-        mapping = {"Install": "install", "List": "list", "Help": "help"}
-        self._use_prompt(mapping.get(action, action))
 
     def append_message(self, message: ChatMessage) -> None:
         self._hide_welcome()
@@ -319,64 +246,24 @@ class ChatPanel(QWidget):
         color = p.text_muted_inverse if dark else p.text_secondary
         return f"color: {color}; font-size: 9.5pt;"
 
-    def _welcome_prompts_label_style(self) -> str:
-        p = self._palette
-        dark = self._variant == "dark"
-        color = p.blue_500 if dark else p.blue_600
-        return f"color: {color}; font-weight: 600; font-size: 9pt;"
-
     def _apply_welcome_card_style(self) -> None:
         if not hasattr(self, "_welcome_card"):
             return
-        p = self._palette
-        dark = self._variant == "dark"
-        self._welcome_card.setStyleSheet(
-            "background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;"
-            if dark
-            else f"background: {p.surface_muted}; border: 1px solid {p.border}; border-radius: 16px;"
-        )
+        self._welcome_card.setStyleSheet("background: transparent; border: none;")
+        self._welcome_card.setMinimumHeight(220)
 
     def _refresh_welcome_theme(self) -> None:
         if self._welcome_title is not None:
             self._welcome_title.setStyleSheet(self._welcome_title_style())
         if self._welcome_sub is not None:
             self._welcome_sub.setStyleSheet(self._welcome_sub_style())
-        if self._welcome_prompts_label is not None:
-            self._welcome_prompts_label.setStyleSheet(self._welcome_prompts_label_style())
         self._apply_welcome_card_style()
-        if hasattr(self, "_welcome_card"):
-            for btn in self._welcome_card.findChildren(QPushButton):
-                if btn.objectName() == "suggestedPrompt":
-                    btn.setStyleSheet(self._suggested_prompt_style())
 
-    @staticmethod
-    def _suggested_prompt_style_for(p: CCTechPalette, *, dark: bool) -> str:
-        return f"""
-            QPushButton#suggestedPrompt {{
-                background: rgba(30, 91, 255, 0.15);
-                color: {p.text_inverse if dark else p.navy_800};
-                border: 1px solid rgba(34, 211, 238, 0.25);
-                border-radius: 10px;
-                padding: 10px 12px;
-                text-align: left;
-                font-size: 9.5pt;
-            }}
-            QPushButton#suggestedPrompt:hover {{
-                background: rgba(34, 211, 238, 0.2);
-            }}
-            """
-
-    def _suggested_prompt_style(self) -> str:
-        return self._suggested_prompt_style_for(self._palette, dark=self._variant == "dark")
-
-    def _panel_stylesheet(self, chip_style: str) -> str:
+    def _panel_stylesheet(self) -> str:
         p = self._palette
         dark = self._variant == "dark"
         text_color = p.text_inverse if dark else p.text_primary
-        return (
-            f"QWidget#chatPanel {{ color: {text_color}; background: transparent; }}\n"
-            f"{chip_style}"
-        )
+        return f"QWidget#chatPanel {{ color: {text_color}; background: transparent; }}"
 
     def _apply_variant(self, variant: str) -> None:
         if self._variant == variant:
@@ -397,20 +284,6 @@ class ChatPanel(QWidget):
                 }}
                 """
             )
-            chip_style = f"""
-            QPushButton#promptChip {{
-                background: rgba(255,255,255,0.08);
-                color: {p.text_inverse};
-                border: 1px solid rgba(255,255,255,0.22);
-                border-radius: 14px;
-                padding: 6px 14px;
-                font-size: 9pt;
-                font-weight: 600;
-            }}
-            QPushButton#promptChip:hover {{
-                background: rgba(30, 91, 255, 0.18);
-            }}
-            """
             if self._composer is not None:
                 self._composer.setStyleSheet(
                     "background: rgba(0,0,0,0.18); border-top: 1px solid rgba(255,255,255,0.08);"
@@ -431,24 +304,11 @@ class ChatPanel(QWidget):
                 }}
                 """
             )
-            chip_style = f"""
-            QPushButton#promptChip {{
-                background: {p.surface_muted};
-                color: {p.blue_600};
-                border: 1px solid {p.border};
-                border-radius: 14px;
-                padding: 6px 14px;
-                font-weight: 600;
-            }}
-            QPushButton#promptChip:hover {{
-                background: {p.surface_hover};
-            }}
-            """
             if self._composer is not None:
                 self._composer.setStyleSheet(
                     f"background: {p.surface}; border-top: 1px solid {p.border};"
                 )
-        self.setStyleSheet(self._panel_stylesheet(chip_style))
+        self.setStyleSheet(self._panel_stylesheet())
         self._refresh_welcome_theme()
 
     def _scroll_to_bottom(self) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QComboBox,
@@ -24,11 +24,20 @@ from smartinstall.ui.theme.cctech_theme import CCTechPalette, muted_stylesheet
 class LiveLogViewer(QWidget):
     """Enterprise live log panel with streaming, filtering, and export."""
 
+    _BATCH_MS = 150
+    _MAX_BUFFER = 5000
+    _TRIM_TO = 4000
+    _MAX_VISIBLE = 800
+
     def __init__(self, palette: CCTechPalette, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._palette = palette
         self._auto_scroll = True
         self._buffer: list[str] = []
+        self._pending_lines: list[str] = []
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setInterval(self._BATCH_MS)
+        self._flush_timer.timeout.connect(self._flush_pending)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -42,11 +51,11 @@ class LiveLogViewer(QWidget):
 
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search logs…")
-        self._search.textChanged.connect(self._refresh_view)
+        self._search.textChanged.connect(self._on_filter_changed)
 
         self._filter = QComboBox()
         self._filter.addItems(["All", "Errors", "Warnings", "Info"])
-        self._filter.currentTextChanged.connect(self._refresh_view)
+        self._filter.currentTextChanged.connect(self._on_filter_changed)
 
         self._pause_btn = QPushButton("Pause")
         self._pause_btn.setCheckable(True)
@@ -79,13 +88,23 @@ class LiveLogViewer(QWidget):
 
     def append_line(self, line: str) -> None:
         self._buffer.append(line)
-        if len(self._buffer) > 5000:
-            self._buffer = self._buffer[-4000:]
-        if not self._pause_btn.isChecked():
-            self._refresh_view()
+        if len(self._buffer) > self._MAX_BUFFER:
+            self._buffer = self._buffer[-self._TRIM_TO :]
+        if self._pause_btn.isChecked():
+            return
+        if self._needs_full_refresh():
+            if not self._flush_timer.isActive():
+                self._flush_timer.start()
+            self._pending_lines.append(line)
+            return
+        self._pending_lines.append(line)
+        if not self._flush_timer.isActive():
+            self._flush_timer.start()
 
     def clear(self) -> None:
         self._buffer.clear()
+        self._pending_lines.clear()
+        self._flush_timer.stop()
         self._log_view.clear()
 
     def _on_pause_toggled(self, paused: bool) -> None:
@@ -94,33 +113,78 @@ class LiveLogViewer(QWidget):
         if not paused:
             self._refresh_view()
 
-    def _refresh_view(self) -> None:
-        query = self._search.text().strip().lower()
-        mode = self._filter.currentText()
-        lines: list[str] = []
-        for line in self._buffer:
-            lower = line.lower()
-            if mode == "Errors" and not any(tok in lower for tok in ("error", "failed", "fatal")):
-                continue
-            if mode == "Warnings" and "warn" not in lower:
-                continue
-            if mode == "Info" and any(tok in lower for tok in ("error", "failed", "fatal", "warn")):
-                continue
-            if query and query not in lower:
-                continue
-            lines.append(line)
+    def _on_filter_changed(self, *_args: object) -> None:
+        self._pending_lines.clear()
+        self._flush_timer.stop()
+        self._refresh_view()
 
+    def _needs_full_refresh(self) -> bool:
+        return bool(self._search.text().strip()) or self._filter.currentText() != "All"
+
+    def _flush_pending(self) -> None:
+        if not self._pending_lines:
+            self._flush_timer.stop()
+            return
+        if self._needs_full_refresh():
+            self._pending_lines.clear()
+            self._refresh_view()
+            self._flush_timer.stop()
+            return
+
+        cursor = self._log_view.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        batch = self._pending_lines
+        self._pending_lines = []
+        for line in batch:
+            fmt = self._format_for_line(line)
+            cursor.insertText(line + "\n", fmt)
+        if self._auto_scroll:
+            self._log_view.moveCursor(QTextCursor.MoveOperation.End)
+        self._trim_visible_lines()
+        if not self._pending_lines:
+            self._flush_timer.stop()
+
+    def _trim_visible_lines(self) -> None:
+        doc = self._log_view.document()
+        if doc.blockCount() <= self._MAX_VISIBLE + 50:
+            return
+        cursor = QTextCursor(doc)
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        excess = doc.blockCount() - self._MAX_VISIBLE
+        for _ in range(excess):
+            cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
+            cursor.removeSelectedText()
+            cursor.deleteChar()
+
+    def _format_for_line(self, line: str) -> QTextCharFormat:
+        fmt = QTextCharFormat()
+        lower = line.lower()
+        if any(tok in lower for tok in ("error", "failed", "fatal")):
+            fmt.setForeground(QColor(self._palette.error))
+        elif "warn" in lower:
+            fmt.setForeground(QColor(self._palette.warning))
+        return fmt
+
+    def _line_matches_filter(self, line: str) -> bool:
+        lower = line.lower()
+        mode = self._filter.currentText()
+        if mode == "Errors" and not any(tok in lower for tok in ("error", "failed", "fatal")):
+            return False
+        if mode == "Warnings" and "warn" not in lower:
+            return False
+        if mode == "Info" and any(tok in lower for tok in ("error", "failed", "fatal", "warn")):
+            return False
+        query = self._search.text().strip().lower()
+        if query and query not in lower:
+            return False
+        return True
+
+    def _refresh_view(self) -> None:
+        lines = [line for line in self._buffer if self._line_matches_filter(line)]
         self._log_view.clear()
         cursor = self._log_view.textCursor()
-        for line in lines[-800:]:
-            fmt = QTextCharFormat()
-            lower = line.lower()
-            if any(tok in lower for tok in ("error", "failed", "fatal")):
-                fmt.setForeground(QColor(self._palette.error))
-            elif "warn" in lower:
-                fmt.setForeground(QColor(self._palette.warning))
-            cursor.insertText(line + "\n", fmt)
-
+        for line in lines[-self._MAX_VISIBLE :]:
+            cursor.insertText(line + "\n", self._format_for_line(line))
         if self._auto_scroll:
             self._log_view.moveCursor(QTextCursor.MoveOperation.End)
 

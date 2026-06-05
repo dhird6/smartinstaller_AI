@@ -154,7 +154,9 @@ class SystemTrayController:
             "Run scripts\\install_windows_service.ps1 as Administrator to register SCM.",
         )
 
-    def _quit_app(self) -> None:
-        self._shell._shutdown_workers()  # noqa: SLF001
+    def shutdown(self) -> None:
+        """Hide the tray icon during application exit."""
         self._tray.hide()
-        self._app.quit()
+
+    def _quit_app(self) -> None:
+        self._shell.request_quit()  # noqa: SLF001

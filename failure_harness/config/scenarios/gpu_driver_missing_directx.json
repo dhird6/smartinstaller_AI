@@ -1,0 +1,21 @@
+{
+  "scenarioId": "gpu_driver_missing_directx",
+  "name": "Missing DirectX Support",
+  "description": "Simulates GPU/DirectX prerequisite failure during TestApp installation.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "gpu-001",
+      "category": "gpu_driver",
+      "subType": "missing_directx",
+      "severity": "high",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["directx", "gpu", "driver"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

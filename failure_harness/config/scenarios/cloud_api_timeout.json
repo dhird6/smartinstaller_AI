@@ -1,0 +1,21 @@
+{
+  "scenarioId": "cloud_api_timeout",
+  "name": "Cloud API Timeout",
+  "description": "Simulates cloud activation API timeout during online installation step.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "cloud-001",
+      "category": "cloud_api",
+      "subType": "api_timeout",
+      "severity": "medium",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["api", "timeout", "cloud"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

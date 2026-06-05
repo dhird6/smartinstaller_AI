@@ -135,3 +135,55 @@ def test_harness_config_exists() -> None:
 
     config = load_harness_config(config_path)
     assert config.harness_version == "1.0"
+
+
+def test_all_scenarios_load(scenarios_dir: Path) -> None:
+    manager = ScenarioManager(scenarios_dir)
+    for sid in manager.list_scenario_ids():
+        if sid == "scenario_catalog":
+            continue
+        scenario = manager.load_scenario(sid)
+        assert scenario.scenario_id
+        assert scenario.failures
+
+
+def test_each_failure_category_has_scenario(scenarios_dir: Path) -> None:
+    manager = ScenarioManager(scenarios_dir)
+    covered: set[str] = set()
+    for sid in manager.list_scenario_ids():
+        if sid == "scenario_catalog":
+            continue
+        scenario = manager.load_scenario(sid)
+        for failure in scenario.failures:
+            covered.add(failure.category.value)
+    for category in FailureCategory:
+        assert category.value in covered, f"No scenario covers category {category.value}"
+
+
+def test_template_exit_code_used_when_not_specified() -> None:
+    scenario = ScenarioConfig.model_validate(
+        {
+            "scenarioId": "template-exit",
+            "name": "Template Exit",
+            "failures": [
+                {"id": "f1", "category": "disk_storage", "subType": "insufficient_disk_space"},
+            ],
+        }
+    )
+    engine = FailureInjectionEngine()
+    result = engine.execute_scenario(scenario, simulate_only=True)
+    assert result.final_exit_code == 112
+
+
+def test_scenario_builder_round_trip(scenarios_dir: Path, tmp_path: Path) -> None:
+    from failure_harness.scenario_builder import build_scenario_for_sub_type, write_scenario
+
+    scenario = build_scenario_for_sub_type(
+        category=FailureCategory.OS_LEVEL,
+        sub_type="wmi_corruption",
+        scenario_id="builder_test_wmi",
+    )
+    path = write_scenario(scenario, tmp_path)
+    loaded = ScenarioManager(tmp_path).load_scenario("builder_test_wmi")
+    assert loaded.failures[0].sub_type == "wmi_corruption"
+    assert path.is_file()

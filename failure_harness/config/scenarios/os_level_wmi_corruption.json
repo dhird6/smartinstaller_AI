@@ -1,0 +1,21 @@
+{
+  "scenarioId": "os_level_wmi_corruption",
+  "name": "WMI Corruption",
+  "description": "Simulates WMI repository corruption during prerequisite checks.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "os-001",
+      "category": "os_level",
+      "subType": "wmi_corruption",
+      "severity": "high",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["wmi", "corruption", "repository"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

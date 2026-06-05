@@ -10,6 +10,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from smartinstall.agent.di.container import build_container
+from smartinstall.agent.infrastructure.bundled_assets import ensure_bundled_assets
 from smartinstall.agent.notifications.win_app_id import ensure_windows_toast_app_id
 from smartinstall.agent.services.background_monitor_service import BackgroundMonitorService
 from smartinstall.agent.windows.auto_start import enable_auto_start, is_auto_start_enabled
@@ -41,6 +42,7 @@ def run_desktop(config_path: Path | None = None, *, start_in_tray: bool = False)
         app.processEvents()
 
     splash.set_status("Loading configuration…")
+    ensure_bundled_assets()
     container = build_container(config_path)
     if not start_in_tray:
         app.processEvents()

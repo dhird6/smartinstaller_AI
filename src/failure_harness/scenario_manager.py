@@ -31,8 +31,16 @@ class ScenarioManager:
             scenarios_dir = default if default.is_dir() else root / "failure_harness" / "config" / "scenarios"
         return cls(scenarios_dir)
 
+    @property
+    def scenarios_dir(self) -> Path:
+        return self._scenarios_dir
+
     def list_scenario_ids(self) -> list[str]:
-        return sorted(p.stem for p in self._scenarios_dir.glob("*.json"))
+        return sorted(
+            p.stem
+            for p in self._scenarios_dir.glob("*.json")
+            if p.stem not in {"scenario_catalog"}
+        )
 
     def load_scenario(self, scenario_id: str) -> ScenarioConfig:
         path = self._scenarios_dir / f"{scenario_id}.json"

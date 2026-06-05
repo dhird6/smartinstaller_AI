@@ -1,0 +1,23 @@
+{
+  "scenarioId": "dependency_missing_dotnet",
+  "name": "Missing .NET Runtime",
+  "description": "Simulates installer failing because the required .NET Runtime is not installed on the target system.",
+  "failureMode": "single",
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.3,
+  "failures": [
+    {
+      "id": "dep_dotnet_001",
+      "category": "dependency",
+      "subType": "missing_dotnet",
+      "severity": "high",
+      "delaySeconds": 1.5,
+      "exitCode": 1603,
+      "recoveryPolicy": "retry",
+      "retryCount": 1,
+      "expectedRagKeywords": ["dotnet", ".net", "runtime", "framework", "prerequisite"]
+    }
+  ]
+}

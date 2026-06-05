@@ -33,8 +33,9 @@ class TroubleshootingPage(QScrollArea):
     def __init__(self, palette: CCTechPalette, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._palette = palette
-        self.setWidgetResizable(True)
-        self.setFrameShape(QFrame.Shape.NoFrame)
+        from smartinstall.ui.layout.responsive import configure_page_scroll
+
+        configure_page_scroll(self)
 
         self._container = QWidget()
         self._container.setObjectName("tshootContainer")

@@ -9,9 +9,12 @@ from PySide6.QtWidgets import (
     QLabel,
     QProgressBar,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
+
+from smartinstall.ui.layout.responsive import configure_page_scroll
 
 from smartinstall.agent.orchestration.automated_run_orchestrator import AutomatedRunResult
 from smartinstall.ui.components.enterprise_button import hero_outline_button, hero_primary_button
@@ -20,6 +23,18 @@ from smartinstall.ui.components.ui_card import PAGE_MARGIN, PAGE_SPACING, sectio
 from smartinstall.ui.theme.cctech_theme import CCTechPalette, body_stylesheet, heading_stylesheet, muted_stylesheet
 from smartinstall.ui.widgets.live_log_viewer import LiveLogViewer
 from smartinstall.ui.widgets.monitoring_assistance_panel import MonitoringAssistancePanel
+
+# Progress tied to real workflow phases — not auto-incremented.
+_STATUS_PROGRESS: dict[str, int] = {
+    "Ready": 0,
+    "Detected": 12,
+    "Preparing": 28,
+    "Running": 52,
+    "Collecting": 72,
+    "Diagnosing": 88,
+    "Success": 100,
+    "Failed": 100,
+}
 
 
 class MonitoringPage(QScrollArea):
@@ -33,8 +48,8 @@ class MonitoringPage(QScrollArea):
         super().__init__(parent)
         self._palette = palette
         self._installation_status = "Ready"
-        self.setWidgetResizable(True)
-        self.setFrameShape(QFrame.Shape.NoFrame)
+        self._is_terminal = False
+        configure_page_scroll(self)
 
         container = QWidget()
         container.setObjectName("monContainer")
@@ -44,27 +59,23 @@ class MonitoringPage(QScrollArea):
         self.setWidget(container)
 
         root = QVBoxLayout(container)
-        root.setContentsMargins(PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN)
-        root.setSpacing(PAGE_SPACING)
+        root.setContentsMargins(PAGE_MARGIN, PAGE_MARGIN - 8, PAGE_MARGIN, PAGE_MARGIN)
+        root.setSpacing(PAGE_SPACING - 4)
 
-        workspace = QHBoxLayout()
-        workspace.setSpacing(GRID_GAP := 16)
-
-        left_col = QVBoxLayout()
-        left_col.setSpacing(12)
-        left_col.addWidget(self._build_overview_card())
-        left_col.addWidget(self._build_timeline_card())
-        workspace.addLayout(left_col, stretch=2)
-
-        center_col = QVBoxLayout()
+        # Top row: overview (left) + live logs (right) — vertical page, no horizontal columns.
+        top_row = QHBoxLayout()
+        top_row.setSpacing(12)
+        top_row.addWidget(self._build_overview_card(), stretch=2)
         self._live_logs = LiveLogViewer(palette)
-        center_col.addWidget(self._titled_card("Live Activity", self._live_logs))
-        workspace.addLayout(center_col, stretch=3)
+        top_row.addWidget(self._titled_card("Live Activity", self._live_logs), stretch=3)
+        root.addLayout(top_row)
+
+        root.addWidget(self._build_timeline_card())
 
         self._assistance = MonitoringAssistancePanel(palette)
-        workspace.addWidget(self._assistance, stretch=2)
+        self._assistance.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        root.addWidget(self._assistance)
 
-        root.addLayout(workspace, stretch=1)
         root.addWidget(self._build_summary_bar())
 
     def _build_overview_card(self) -> QFrame:
@@ -74,7 +85,7 @@ class MonitoringPage(QScrollArea):
         hero_layout.setSpacing(16)
         hero_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._visualizer = InstallVisualizer(p, size=120)
+        self._visualizer = InstallVisualizer(p, size=110)
         hero_layout.addWidget(self._visualizer, alignment=Qt.AlignmentFlag.AlignTop)
 
         status_col = QVBoxLayout()
@@ -85,21 +96,26 @@ class MonitoringPage(QScrollArea):
         self._status_label.setStyleSheet(heading_stylesheet(p, size_pt=12))
 
         self._phase_label = QLabel("Installation status: Ready")
+        self._phase_label.setWordWrap(True)
         self._phase_label.setStyleSheet(muted_stylesheet(p))
 
         self._stage_label = QLabel("Current phase: idle")
+        self._stage_label.setWordWrap(True)
         self._stage_label.setStyleSheet(muted_stylesheet(p))
 
         self._process_label = QLabel("Process: —")
+        self._process_label.setWordWrap(True)
         self._process_label.setStyleSheet(body_stylesheet(p))
 
         self._duration_label = QLabel("Start time: —")
+        self._duration_label.setWordWrap(True)
         self._duration_label.setStyleSheet(body_stylesheet(p))
 
         self._progress = QProgressBar()
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
-        self._progress.setTextVisible(False)
+        self._progress.setTextVisible(True)
+        self._progress.setFormat("%p%")
 
         status_col.addWidget(self._status_label)
         status_col.addWidget(self._phase_label)
@@ -160,8 +176,39 @@ class MonitoringPage(QScrollArea):
     def set_installation_status(self, status: str) -> None:
         self._installation_status = status
         self._phase_label.setText(f"Installation status: {status}")
+        if not self._is_terminal:
+            self._apply_progress_for_status(status)
+            if status in {"Running", "Preparing", "Detected", "Collecting", "Diagnosing"}:
+                self._visualizer.set_state(InstallVisualState.BUSY)
+
+    def _apply_progress_for_status(self, status: str) -> None:
+        value = _STATUS_PROGRESS.get(status, self._progress.value())
+        self._progress.setValue(value)
+
+    def _mark_running(self) -> None:
+        self._is_terminal = False
+        self._visualizer.set_state(InstallVisualState.BUSY)
+
+    def _mark_terminal_success(self) -> None:
+        self._is_terminal = True
+        self._visualizer.set_state(InstallVisualState.SUCCESS)
+        self._progress.setValue(100)
+        p = self._palette
+        self._progress.setStyleSheet(
+            f"QProgressBar::chunk {{ background: {p.success}; border-radius: 4px; }}"
+        )
+
+    def _mark_terminal_error(self) -> None:
+        self._is_terminal = True
+        self._visualizer.set_state(InstallVisualState.ERROR)
+        self._progress.setValue(100)
+        p = self._palette
+        self._progress.setStyleSheet(
+            f"QProgressBar::chunk {{ background: {p.error}; border-radius: 4px; }}"
+        )
 
     def set_idle(self) -> None:
+        self._is_terminal = False
         self._visualizer.set_state(InstallVisualState.IDLE)
         p = self._palette
         self.set_installation_status("Ready")
@@ -189,19 +236,25 @@ class MonitoringPage(QScrollArea):
         pid: int = 0,
         mode: str = "manual",
     ) -> None:
+        self._is_terminal = False
         self._assistance.reset_for_new_install(installer_name=installer_name)
-        self.set_installation_status("Detected")
         self._live_logs.clear()
         self._live_logs.append_line(f"Smart Installer detected: {installer_name}")
         if session_id:
             self._live_logs.append_line(f"Session ID: {session_id}")
         if pid:
             self.set_process_info(f"pid={pid}  ·  {mode}")
-        self.set_busy(f"Monitoring: {installer_name}")
-        self.set_installation_status("Preparing")
+        self._status_label.setText(f"Monitoring: {installer_name}")
+        p = self._palette
+        self._status_label.setStyleSheet(
+            f"font-size: 12pt; font-weight: 700; color: {p.blue_600};"
+        )
+        self.set_installation_status("Detected")
+        self._mark_running()
 
     def set_busy(self, message: str) -> None:
-        self._visualizer.set_state(InstallVisualState.BUSY)
+        if self._is_terminal:
+            return
         p = self._palette
         self._status_label.setText(message)
         self._status_label.setStyleSheet(
@@ -209,13 +262,23 @@ class MonitoringPage(QScrollArea):
         )
         if self._installation_status in {"Ready", "Detected"}:
             self.set_installation_status("Running")
-        current = self._progress.value()
-        if current < 90:
-            self._progress.setValue(min(90, current + 8 if current else 45))
+        else:
+            self._mark_running()
 
     def set_stage(self, stage: str) -> None:
+        if self._is_terminal:
+            return
         self._stage_label.setText(f"Current phase: {stage}")
         self._append_timeline(stage)
+        lowered = stage.lower()
+        if any(tok in lowered for tok in ("snapshot", "evidence", "collect")):
+            self.set_installation_status("Collecting")
+        elif any(tok in lowered for tok in ("diagnos", "slm", "rag", "troubleshoot")):
+            self.set_installation_status("Diagnosing")
+        elif any(tok in lowered for tok in ("run", "install", "monitor", "execut")):
+            self.set_installation_status("Running")
+        elif any(tok in lowered for tok in ("prepar", "detect", "start")):
+            self.set_installation_status("Preparing")
 
     def set_process_info(self, text: str) -> None:
         self._process_label.setText(f"Process: {text}")
@@ -228,38 +291,34 @@ class MonitoringPage(QScrollArea):
             self._duration_label.setText(f"Duration: {seconds:.0f}s")
 
     def set_success(self, result: AutomatedRunResult) -> None:
-        self._visualizer.set_state(InstallVisualState.SUCCESS)
         self.set_installation_status("Success")
         self.apply_run_result(result, preserve_logs=True)
         p = self._palette
         self._status_label.setStyleSheet(
             f"font-size: 12pt; font-weight: 700; color: {p.success};"
         )
-        self._progress.setValue(100)
-        self._progress.setStyleSheet(
-            f"QProgressBar::chunk {{ background: {p.success}; border-radius: 4px; }}"
+        self._status_label.setText(
+            f"Installation complete — {result.discovered.file_name}"
         )
+        self._mark_terminal_success()
 
     def set_error(self, result: AutomatedRunResult) -> None:
-        self._visualizer.set_state(InstallVisualState.ERROR)
         self.set_installation_status("Failed")
         self.apply_run_result(result, preserve_logs=True)
         p = self._palette
         self._status_label.setStyleSheet(
             f"font-size: 12pt; font-weight: 700; color: {p.error};"
         )
-        self._progress.setStyleSheet(
-            f"QProgressBar::chunk {{ background: {p.error}; border-radius: 4px; }}"
+        self._status_label.setText(
+            f"Installation failed — {result.discovered.file_name}"
         )
+        self._mark_terminal_error()
         self._live_logs.append_line(
             "Installation encountered errors — see AI Assistance and Troubleshooting."
         )
 
     def append_log(self, line: str) -> None:
         self._live_logs.append_line(line)
-        lower = line.lower()
-        if any(tok in lower for tok in ("error", "failed", "exception", "fatal")):
-            self._visualizer.set_state(InstallVisualState.ERROR)
 
     def apply_run_result(
         self,
@@ -272,10 +331,23 @@ class MonitoringPage(QScrollArea):
             return
         report = result.report
         status = report.status
+        outcome = status.installation_outcome.lower()
+
+        if outcome in {"success", "completed"}:
+            self._mark_terminal_success()
+            self.set_installation_status("Success")
+        elif outcome in {"failed", "failure", "error", "crashed", "timedout"}:
+            self._mark_terminal_error()
+            self.set_installation_status("Failed")
+        elif not self._is_terminal:
+            self._mark_running()
+
         self._status_label.setText(
             f"{status.installer.installer_name}  ·  {status.installation_outcome}"
         )
-        self._progress.setValue(100 if status.installation_completed else 65)
+        if not self._is_terminal:
+            self._progress.setValue(65 if status.installation_completed else _STATUS_PROGRESS.get("Running", 52))
+
         self._timeline_label.setText(
             f"Session ID    {status.session_id}\n"
             f"Duration      {status.duration_seconds or '—'} s\n"

@@ -10,12 +10,12 @@ from smartinstall.ui.services.slm_response_parser import SlmPartition, partition
 from smartinstall.ui.theme.cctech_theme import CCTechPalette, body_stylesheet, heading_stylesheet, muted_stylesheet
 
 _WAITING_AI = "Waiting for installation events…"
-_WAITING_TROUBLESHOOT = "Monitoring installation — known issues will appear here automatically."
+_WAITING_TROUBLESHOOT = "Monitoring installation — known issues will appear here when detected."
 _WAITING_ANALYSIS = "Error root-cause analysis will appear when issues are detected."
 
 
 class MonitoringAssistancePanel(QWidget):
-    """Right-side AI assistance columns on the Live Monitoring page."""
+    """Full-width AI assistance block below live monitoring (stacked vertically)."""
 
     def __init__(self, palette: CCTechPalette, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -26,14 +26,14 @@ class MonitoringAssistancePanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        self._ai_body = self._section("AI Suggestions", _WAITING_AI)
+        # Troubleshooting and analysis first; AI suggestions last (below).
         self._trouble_body = self._section("Troubleshooting", _WAITING_TROUBLESHOOT)
         self._analysis_body = self._section("Error Analysis", _WAITING_ANALYSIS)
+        self._ai_body = self._section("AI Suggestions", _WAITING_AI)
 
-        layout.addWidget(self._ai_body)
         layout.addWidget(self._trouble_body)
         layout.addWidget(self._analysis_body)
-        layout.addStretch(1)
+        layout.addWidget(self._ai_body)
 
     def _section(self, title: str, initial: str) -> QFrame:
         p = self._palette
@@ -77,11 +77,11 @@ class MonitoringAssistancePanel(QWidget):
 
     def set_slm_running(self, *, installer_name: str = "") -> None:
         product = installer_name or "the monitored installer"
+        self._analysis_label.setText(f"Running root-cause analysis for {product}…")
         self._ai_label.setText(
             f"Analyzing {product} installation logs…\n"
             "Retrieving similar incidents and generating fix steps."
         )
-        self._analysis_label.setText(f"Running root-cause analysis for {product}…")
 
     def apply_slm(self, answer: str, *, confidence: float | None = None) -> None:
         slm = partition_slm_answer(answer)
@@ -108,7 +108,7 @@ class MonitoringAssistancePanel(QWidget):
         if slm.recommended_fix:
             lines.append(f"<br/><b>Recommended Fix</b><br/>{slm.recommended_fix}")
         elif slm.structured:
-            lines.append(f"<br/><b>Recommended Fix</b><br/>See full AI response in Troubleshooting.")
+            lines.append("<br/><b>Recommended Fix</b><br/>See full AI response in Troubleshooting.")
 
         if confidence is not None:
             lines.append(f"<br/><b>Confidence Score</b><br/>{int(confidence * 100)}%")

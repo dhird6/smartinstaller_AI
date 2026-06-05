@@ -50,8 +50,12 @@ class RagValidator:
         expected = self._collect_expected_keywords(scenario)
         matched, score = self._score_relevance(answer, sources, expected)
 
+        has_answer = len(answer.strip()) > 20
+        keyword_ok = not expected or len(matched) > 0
+        success = score >= threshold and has_answer and keyword_ok
+
         return RagValidationResult(
-            success=score >= threshold and len(answer.strip()) > 20,
+            success=success,
             relevanceScore=round(score, 3),
             matchedKeywords=matched,
             expectedKeywords=expected,
@@ -149,10 +153,16 @@ class RagValidator:
         if not matched:
             matched = [kw for kw in expected_keywords if self._word_overlap(kw, combined)]
 
+        source_bonus = 0.0
+        for source in sources:
+            source_lower = source.lower()
+            if any(kw.lower() in source_lower for kw in expected_keywords):
+                source_bonus = 0.2
+                break
+
         score = len(matched) / len(expected_keywords) if expected_keywords else 0.0
-        if len(answer.strip()) > 100:
-            score = min(1.0, score + 0.15)
-        if sources:
+        score = min(1.0, score + source_bonus)
+        if len(answer.strip()) > 100 and matched:
             score = min(1.0, score + 0.1)
 
         return matched, score

@@ -1,0 +1,23 @@
+{
+  "scenarioId": "service_startup_failure",
+  "name": "Windows Service Startup Failure",
+  "description": "Simulates the installer failing to start a required Windows service during installation (Error 1053).",
+  "failureMode": "single",
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.3,
+  "failures": [
+    {
+      "id": "svc_start_001",
+      "category": "service",
+      "subType": "service_startup_failure",
+      "severity": "high",
+      "delaySeconds": 2.5,
+      "exitCode": 1603,
+      "recoveryPolicy": "retry",
+      "retryCount": 2,
+      "expectedRagKeywords": ["service", "startup", "1053", "windows service", "timeout"]
+    }
+  ]
+}

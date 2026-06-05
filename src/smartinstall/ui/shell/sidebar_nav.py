@@ -20,8 +20,8 @@ from smartinstall.ui.resources.brand_assets import load_brand_logo_pixmap
 from smartinstall.ui.theme.cctech_theme import CCTechPalette
 from smartinstall.ui.widgets.avatar_label import icon_pixmap
 
-_EXPANDED_W = 260
-_COLLAPSED_W = 72
+_EXPANDED_W = 240
+_COLLAPSED_W = 64
 _ANIM_MS = 200
 
 

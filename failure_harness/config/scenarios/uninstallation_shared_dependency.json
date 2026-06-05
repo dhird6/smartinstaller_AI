@@ -1,0 +1,21 @@
+{
+  "scenarioId": "uninstallation_shared_dependency",
+  "name": "Shared Dependency Conflict",
+  "description": "Simulates shared dependency conflict during uninstall/reinstall cycle.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "unin-001",
+      "category": "uninstallation",
+      "subType": "shared_dependency_conflict",
+      "severity": "medium",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["shared", "dependency", "conflict"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

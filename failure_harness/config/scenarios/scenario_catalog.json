@@ -1,0 +1,217 @@
+{
+  "categories": {
+    "cloud_api": [
+      {
+        "scenarioId": "cloud_api_timeout",
+        "name": "Cloud API Timeout",
+        "failureMode": "single",
+        "primaryCategory": "cloud_api"
+      }
+    ],
+    "dependency": [
+      {
+        "scenarioId": "dependency_missing_dotnet",
+        "name": "Missing .NET Runtime",
+        "failureMode": "single",
+        "primaryCategory": "dependency"
+      },
+      {
+        "scenarioId": "dependency_missing_vc_runtime",
+        "name": "Missing VC++ Runtime Dependency",
+        "failureMode": "single",
+        "primaryCategory": "dependency"
+      }
+    ],
+    "disk_storage": [
+      {
+        "scenarioId": "disk_insufficient_space",
+        "name": "Insufficient Disk Space",
+        "failureMode": "single",
+        "primaryCategory": "disk_storage"
+      },
+      {
+        "scenarioId": "multi_simultaneous_failures",
+        "name": "Multiple Simultaneous Failures",
+        "failureMode": "simultaneous",
+        "primaryCategory": "disk_storage"
+      },
+      {
+        "scenarioId": "sequential_multi_category",
+        "name": "Sequential Multi-Category Failures",
+        "failureMode": "sequential",
+        "primaryCategory": "disk_storage"
+      }
+    ],
+    "download_acquisition": [
+      {
+        "scenarioId": "download_corrupt_checksum",
+        "name": "Corrupt Download / Invalid Checksum",
+        "failureMode": "sequential",
+        "primaryCategory": "download_acquisition"
+      }
+    ],
+    "enterprise_deployment": [
+      {
+        "scenarioId": "enterprise_sccm_conflict",
+        "name": "SCCM Deployment Conflict",
+        "failureMode": "single",
+        "primaryCategory": "enterprise_deployment"
+      }
+    ],
+    "file_process_locking": [
+      {
+        "scenarioId": "file_process_locked_dll",
+        "name": "Locked DLL During Install",
+        "failureMode": "single",
+        "primaryCategory": "file_process_locking"
+      }
+    ],
+    "gpu_driver": [
+      {
+        "scenarioId": "gpu_driver_missing_directx",
+        "name": "Missing DirectX Support",
+        "failureMode": "single",
+        "primaryCategory": "gpu_driver"
+      }
+    ],
+    "human_user": [
+      {
+        "scenarioId": "human_user_cancellation",
+        "name": "User Cancellation",
+        "failureMode": "single",
+        "primaryCategory": "human_user"
+      },
+      {
+        "scenarioId": "recovery_retry_success",
+        "name": "Recovery Retry Success",
+        "failureMode": "single",
+        "primaryCategory": "human_user"
+      }
+    ],
+    "installer_engine": [
+      {
+        "scenarioId": "installer_engine_msi_rollback",
+        "name": "MSI Rollback Failure",
+        "failureMode": "single",
+        "primaryCategory": "installer_engine"
+      }
+    ],
+    "licensing": [
+      {
+        "scenarioId": "licensing_expired",
+        "name": "Expired License Token",
+        "failureMode": "single",
+        "primaryCategory": "licensing"
+      },
+      {
+        "scenarioId": "licensing_flexnet_failure",
+        "name": "FlexNet License Server Unreachable",
+        "failureMode": "single",
+        "primaryCategory": "licensing"
+      },
+      {
+        "scenarioId": "random_failure_sequence",
+        "name": "Randomized Failure Sequence",
+        "failureMode": "deterministic",
+        "primaryCategory": "licensing"
+      }
+    ],
+    "localization": [
+      {
+        "scenarioId": "localization_unicode_path",
+        "name": "Unicode Path Failure",
+        "failureMode": "single",
+        "primaryCategory": "localization"
+      }
+    ],
+    "migration": [
+      {
+        "scenarioId": "migration_profile_corruption",
+        "name": "Profile Migration Corruption",
+        "failureMode": "single",
+        "primaryCategory": "migration"
+      }
+    ],
+    "os_level": [
+      {
+        "scenarioId": "os_level_wmi_corruption",
+        "name": "WMI Corruption",
+        "failureMode": "single",
+        "primaryCategory": "os_level"
+      }
+    ],
+    "permissions_security": [
+      {
+        "scenarioId": "permissions_uac_denial",
+        "name": "UAC Denial / Missing Admin",
+        "failureMode": "single",
+        "primaryCategory": "permissions_security"
+      }
+    ],
+    "plugin_ecosystem": [
+      {
+        "scenarioId": "plugin_ecosystem_api_mismatch",
+        "name": "Plugin API Mismatch",
+        "failureMode": "single",
+        "primaryCategory": "plugin_ecosystem"
+      }
+    ],
+    "rare_edge_case": [
+      {
+        "scenarioId": "rare_edge_certificate_expiration",
+        "name": "Code Signing Certificate Expired",
+        "failureMode": "single",
+        "primaryCategory": "rare_edge_case"
+      }
+    ],
+    "registry": [
+      {
+        "scenarioId": "registry_corruption",
+        "name": "Registry Corruption During Install",
+        "failureMode": "single",
+        "primaryCategory": "registry"
+      }
+    ],
+    "service": [
+      {
+        "scenarioId": "service_startup_failure",
+        "name": "Windows Service Startup Failure",
+        "failureMode": "single",
+        "primaryCategory": "service"
+      }
+    ],
+    "telemetry": [
+      {
+        "scenarioId": "telemetry_logging_service_failure",
+        "name": "Logging Service Failure",
+        "failureMode": "single",
+        "primaryCategory": "telemetry"
+      }
+    ],
+    "uninstallation": [
+      {
+        "scenarioId": "uninstallation_shared_dependency",
+        "name": "Shared Dependency Conflict",
+        "failureMode": "single",
+        "primaryCategory": "uninstallation"
+      }
+    ],
+    "update": [
+      {
+        "scenarioId": "update_upgrade_failure",
+        "name": "In-Place Upgrade Failure",
+        "failureMode": "single",
+        "primaryCategory": "update"
+      }
+    ],
+    "version_compatibility": [
+      {
+        "scenarioId": "version_compatibility_unsupported_os",
+        "name": "Unsupported Operating System",
+        "failureMode": "single",
+        "primaryCategory": "version_compatibility"
+      }
+    ]
+  },
+  "totalScenarios": 28
+}

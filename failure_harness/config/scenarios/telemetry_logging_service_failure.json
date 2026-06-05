@@ -1,0 +1,21 @@
+{
+  "scenarioId": "telemetry_logging_service_failure",
+  "name": "Logging Service Failure",
+  "description": "Simulates telemetry/logging service startup failure during install verification.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "tel-001",
+      "category": "telemetry",
+      "subType": "logging_service_failure",
+      "severity": "medium",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["logging", "service", "failed"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

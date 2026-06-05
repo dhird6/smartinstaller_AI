@@ -1,0 +1,23 @@
+{
+  "scenarioId": "dependency_missing_vc_runtime",
+  "name": "Missing VC++ Runtime Dependency",
+  "description": "Simulates installer failing due to missing Microsoft Visual C++ 2015-2022 Redistributable prerequisite.",
+  "failureMode": "single",
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.3,
+  "failures": [
+    {
+      "id": "dep_vc_001",
+      "category": "dependency",
+      "subType": "missing_vc_runtime",
+      "severity": "high",
+      "delaySeconds": 1.5,
+      "exitCode": 1603,
+      "recoveryPolicy": "retry",
+      "retryCount": 1,
+      "expectedRagKeywords": ["vc++", "runtime", "redistributable", "microsoft", "prerequisite"]
+    }
+  ]
+}

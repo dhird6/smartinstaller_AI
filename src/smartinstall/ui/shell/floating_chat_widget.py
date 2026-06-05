@@ -16,17 +16,27 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from PySide6.QtWidgets import QApplication
+
 from smartinstall.ui.resources.brand_assets import load_brand_logo_pixmap
 from smartinstall.ui.resources.chat_icon import chatbot_icon
 from smartinstall.ui.theme.cctech_theme import CCTechPalette
 from smartinstall.ui.widgets.chat_panel import ChatPanel
 
-_COMPACT_W = 420
-_COMPACT_H = 560
-_MAX_W = 700
-_MAX_H = 740
+_COMPACT_W = 400
+_COMPACT_H = 520
+_MAX_W = 660
+_MAX_H = 700
 _FAB_SIZE = 56
-_MARGIN = 24
+_MARGIN = 20
+
+
+def _available_screen_size() -> tuple[int, int]:
+    screen = QApplication.primaryScreen()
+    if screen is None:
+        return 1920, 1080
+    g = screen.availableGeometry()
+    return g.width(), g.height()
 
 
 class FloatingChatState(str, Enum):
@@ -224,7 +234,10 @@ class FloatingChatWidget(QWidget):
 
     def open_compact(self) -> None:
         self._state = FloatingChatState.COMPACT
-        self._resize_window(_COMPACT_W, _COMPACT_H)
+        sw, sh = _available_screen_size()
+        w = min(_COMPACT_W, max(280, sw - _MARGIN * 4))
+        h = min(_COMPACT_H, max(360, sh - _MARGIN * 8))
+        self._resize_window(w, h)
         self._reposition()
         self._window.setWindowOpacity(1.0)
         self.visibility_changed.emit(True)
@@ -239,7 +252,10 @@ class FloatingChatWidget(QWidget):
         if self._state is FloatingChatState.CLOSED:
             self.open_compact()
         self._state = FloatingChatState.MAXIMIZED
-        self._resize_window(_MAX_W, _MAX_H)
+        sw, sh = _available_screen_size()
+        w = min(_MAX_W, max(340, sw - _MARGIN * 4))
+        h = min(_MAX_H, max(420, sh - _MARGIN * 8))
+        self._resize_window(w, h)
         self._reposition()
         if self._maximize_btn is not None:
             self._maximize_btn.setToolTip("Restore")
@@ -247,7 +263,10 @@ class FloatingChatWidget(QWidget):
 
     def restore(self) -> None:
         self._state = FloatingChatState.COMPACT
-        self._resize_window(_COMPACT_W, _COMPACT_H)
+        sw, sh = _available_screen_size()
+        w = min(_COMPACT_W, max(280, sw - _MARGIN * 4))
+        h = min(_COMPACT_H, max(360, sh - _MARGIN * 8))
+        self._resize_window(w, h)
         self._reposition()
         if self._maximize_btn is not None:
             self._maximize_btn.setToolTip("Maximize")
@@ -272,9 +291,12 @@ class FloatingChatWidget(QWidget):
         if parent is None:
             return
 
+        pw = max(parent.width(), 1)
+        ph = max(parent.height(), 1)
+
         if self._state is FloatingChatState.CLOSED:
-            fab_x = max(_MARGIN, parent.width() - _FAB_SIZE - _MARGIN)
-            fab_y = max(_MARGIN, parent.height() - _FAB_SIZE - _MARGIN)
+            fab_x = max(0, pw - _FAB_SIZE - _MARGIN)
+            fab_y = max(0, ph - _FAB_SIZE - _MARGIN)
             self.setGeometry(fab_x, fab_y, _FAB_SIZE, _FAB_SIZE)
             self._fab.setGeometry(0, 0, _FAB_SIZE, _FAB_SIZE)
             self._fab.show()
@@ -284,8 +306,11 @@ class FloatingChatWidget(QWidget):
 
         w = self._window.width()
         h = self._window.height()
-        wx = max(_MARGIN, parent.width() - w - _MARGIN)
-        wy = max(_MARGIN, parent.height() - h - _MARGIN)
+        # Clamp so the panel never extends beyond parent bounds
+        w = min(w, pw - _MARGIN * 2)
+        h = min(h, ph - _MARGIN * 2)
+        wx = max(0, pw - w - _MARGIN)
+        wy = max(0, ph - h - _MARGIN)
         self.setGeometry(wx, wy, w, h)
         self._window.setGeometry(0, 0, w, h)
         self._window.show()

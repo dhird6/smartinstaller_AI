@@ -69,7 +69,7 @@ class InjectedFailureSpec(BaseModel):
     severity: FailureSeverity = FailureSeverity.MEDIUM
     delay_seconds: float = Field(default=0.0, alias="delaySeconds")
     duration_seconds: float | None = Field(default=None, alias="durationSeconds")
-    exit_code: int = Field(default=1603, alias="exitCode")
+    exit_code: int | None = Field(default=None, alias="exitCode")
     message: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     expected_rag_keywords: list[str] = Field(default_factory=list, alias="expectedRagKeywords")

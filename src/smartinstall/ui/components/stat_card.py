@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout
+from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout
 
 from smartinstall.ui.components.ui_card import CARD_INNER_SPACING, apply_card_style
 from smartinstall.ui.theme.cctech_theme import CCTechPalette, label_transparent, muted_stylesheet
@@ -24,7 +24,8 @@ class StatCard(QFrame):
         super().__init__(parent)
         p = palette
         apply_card_style(self, p, object_name="statCard")
-        self.setMinimumHeight(118)
+        self.setMinimumHeight(96)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         layout = QVBoxLayout(self)

@@ -1,0 +1,21 @@
+{
+  "scenarioId": "installer_engine_msi_rollback",
+  "name": "MSI Rollback Failure",
+  "description": "Simulates Windows Installer rollback during setup — validates MSI engine failure detection.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "msi-001",
+      "category": "installer_engine",
+      "subType": "msi_rollback",
+      "severity": "critical",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["rollback", "msi", "installer"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

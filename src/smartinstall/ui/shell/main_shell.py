@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout, QWidget
 
 from smartinstall.agent.monitoring.completion_notifications import is_completion_notification
 from smartinstall.agent.monitoring.monitoring_state_store import MonitoringPlatformState
@@ -46,6 +46,7 @@ from smartinstall.ui.shell.sidebar_nav import SidebarNav
 
 from smartinstall.ui.shell.top_header import TopHeader
 
+from smartinstall.ui.layout.responsive import clamp_window_to_screen, fit_main_window
 from smartinstall.ui.theme.cctech_theme import CCTechPalette
 
 from smartinstall.ui.widgets.chat_panel import ChatPanel
@@ -139,10 +140,7 @@ class MainShell(QMainWindow):
     def _build_ui(self) -> None:
 
         self.setWindowTitle("SmartInstall AI — CCTech")
-
-        self.resize(1480, 920)
-
-        self.setMinimumSize(1100, 680)
+        fit_main_window(self)
 
         self.setWindowIcon(QIcon(load_brand_logo_pixmap(32)))
 
@@ -286,6 +284,10 @@ class MainShell(QMainWindow):
         self._installation_center.manual_monitor_requested.connect(
             lambda: self._controller.browse_and_install(self)
         )
+        self._installation_center.test_install_requested.connect(
+            self._controller.run_bundled_test_install
+        )
+        self._populate_test_scenarios()
         self._controller.event_bridge.live_log_line.connect(self._monitoring.append_log)
         self._controller.event_bridge.stage_changed.connect(self._monitoring.set_stage)
         self._controller.event_bridge.installation_detected.connect(self._on_installation_detected_log)
@@ -304,6 +306,21 @@ class MainShell(QMainWindow):
             self._sync_worker.start()
 
 
+
+    def _populate_test_scenarios(self) -> None:
+        try:
+            from failure_harness.scenario_manager import ScenarioManager
+
+            manager = ScenarioManager.from_harness_config()
+            scenarios = [
+                (sid, manager.load_scenario(sid).name)
+                for sid in manager.list_scenario_ids()
+            ]
+            self._installation_center.set_test_scenarios(scenarios)
+        except Exception:
+            self._installation_center.set_test_scenarios(
+                [("disk_insufficient_space", "Insufficient Disk Space")]
+            )
 
     def _mount_chat_floating(self) -> None:
 
@@ -327,11 +344,19 @@ class MainShell(QMainWindow):
 
 
 
-    def resizeEvent(self, event) -> None:  # noqa: N802
-
-        super().resizeEvent(event)
-
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        clamp_window_to_screen(self)
         self._floating_chat.reposition()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._floating_chat.reposition()
+        self._dashboard.reflow_for_width(self._content_width())
+
+    def _content_width(self) -> int:
+        sidebar_w = self._sidebar.width() if self._sidebar is not None else 240
+        return max(320, self.width() - sidebar_w - 8)
 
 
 

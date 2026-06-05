@@ -107,15 +107,10 @@ class FailureInjectionEngine:
             if scenario.failure_mode == FailureMode.SEQUENTIAL and spec.recovery_policy != RecoveryPolicy.NONE:
                 self._attempt_recovery(spec, result, events)
 
-        success_path = all(
-            inj.exit_code == 0 or inj.spec.recovery_policy in (RecoveryPolicy.RETRY, RecoveryPolicy.SKIP)
-            for inj in injections
-        ) and len(injections) == 0
-
-        if injections and all(i.exit_code == 0 for i in injections):
+        if not injections:
             success_path = True
-        elif not injections:
-            success_path = True
+        else:
+            success_path = all(inj.exit_code == 0 for inj in injections)
 
         events.append(
             self._event(
@@ -157,12 +152,12 @@ class FailureInjectionEngine:
                     "failureId": spec.id,
                     "category": spec.category.value,
                     "subType": spec.sub_type,
-                    "exitCode": spec.exit_code or template.exit_code,
+                    "exitCode": spec.exit_code if spec.exit_code is not None else template.exit_code,
                 },
             )
         )
 
-        exit_code = spec.exit_code if spec.exit_code != 1603 or spec.message else template.exit_code
+        exit_code = spec.exit_code if spec.exit_code is not None else template.exit_code
         if spec.severity == FailureSeverity.CRITICAL:
             exit_code = max(exit_code, template.exit_code)
 

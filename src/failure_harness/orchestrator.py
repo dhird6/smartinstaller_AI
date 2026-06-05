@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from failure_harness.engine import FailureInjectionEngine
 from failure_harness.health_checker import SmartInstallerHealthChecker
 from failure_harness.models import HarnessConfig, HarnessRunReport, PhaseResult, ScenarioConfig
 from failure_harness.rag_validator import RagValidator
@@ -132,6 +133,20 @@ class HarnessOrchestrator:
         scenario_file = self._write_runtime_scenario(scenario).resolve()
         installer_copy = self._stage_test_installer(test_app, scenario).resolve()
 
+        engine = FailureInjectionEngine(random_seed=scenario.random_seed)
+        dry_run = engine.execute_scenario(scenario, simulate_only=True)
+        for event in dry_run.events:
+            self._logger.log(event.phase, event.component, event.event_type, event.message, event.details)
+        expected_exit = dry_run.final_exit_code
+        checks.append(
+            {
+                "name": "failure_injection_planned",
+                "passed": len(dry_run.injections) > 0,
+                "detail": f"{len(dry_run.injections)} failure(s), expected exit={expected_exit}",
+                "expectedExitCode": expected_exit,
+            }
+        )
+
         report_path: str | None = None
         try:
             container = build_container()
@@ -182,6 +197,18 @@ class HarnessOrchestrator:
                 report = load_report(Path(report_path))
                 detected, det_msg = self._rag_validator.validate_detection_accuracy(report, scenario)
                 checks.append({"name": "failure_detection", "passed": detected, "detail": det_msg})
+
+                actual_exit = self._extract_exit_code(report)
+                exit_match = actual_exit == expected_exit if expected_exit != 0 else actual_exit not in (0, None)
+                checks.append(
+                    {
+                        "name": "exit_code_fidelity",
+                        "passed": exit_match,
+                        "detail": f"expected={expected_exit}, actual={actual_exit}",
+                    }
+                )
+                if not exit_match:
+                    errors.append(f"Exit code mismatch: expected {expected_exit}, got {actual_exit}")
 
                 if not detected and scenario.expect_smart_installer_detection:
                     errors.append(det_msg)
@@ -278,15 +305,19 @@ class HarnessOrchestrator:
         if self._config.test_app_path:
             p = Path(self._config.test_app_path)
             return p if p.is_absolute() else self._root / p
+        from smartinstall.agent.infrastructure.bundled_assets import bundled_test_app_path
+
+        bundled = bundled_test_app_path()
         candidates = [
+            bundled,
             self._root / "installers" / "TestAppSetup.exe",
             self._root / "installers" / "TestAppSetup.py",
             self._root / "failure_harness" / "bin" / "TestAppSetup.exe",
         ]
         for c in candidates:
-            if c.is_file():
+            if c is not None and c.is_file():
                 return c
-        return candidates[0]
+        return self._root / "installers" / "TestAppSetup.exe"
 
     def _stage_test_installer(self, test_app: Path, scenario: ScenarioConfig) -> Path:
         installers_dir = self._root / "installers"
@@ -315,6 +346,15 @@ class HarnessOrchestrator:
         for check in phase2.checks:
             if check.get("name") == "report_generated" and check.get("reportPath"):
                 return str(check["reportPath"])
+        return None
+
+    @staticmethod
+    def _extract_exit_code(report) -> int | None:
+        status = getattr(report, "status", None)
+        if status is not None:
+            installer = getattr(status, "installer", None)
+            if installer is not None and getattr(installer, "exit_code", None) is not None:
+                return installer.exit_code
         return None
 
 

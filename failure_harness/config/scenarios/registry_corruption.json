@@ -1,0 +1,23 @@
+{
+  "scenarioId": "registry_corruption",
+  "name": "Registry Corruption During Install",
+  "description": "Simulates installer encountering a corrupted Windows registry during key write operations.",
+  "failureMode": "single",
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.3,
+  "failures": [
+    {
+      "id": "reg_corrupt_001",
+      "category": "registry",
+      "subType": "registry_corruption",
+      "severity": "critical",
+      "delaySeconds": 2.0,
+      "exitCode": 1603,
+      "recoveryPolicy": "abort",
+      "retryCount": 0,
+      "expectedRagKeywords": ["registry", "corruption", "hkey", "regedit", "repair"]
+    }
+  ]
+}

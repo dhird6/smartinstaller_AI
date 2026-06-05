@@ -9,9 +9,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
+
+from smartinstall.ui.layout.responsive import configure_page_scroll
 
 from smartinstall.ui.components.enterprise_button import hero_outline_button, hero_primary_button
 from smartinstall.ui.components.feature_card import FeatureCard
@@ -45,15 +48,15 @@ class DashboardPage(QScrollArea):
     def __init__(self, palette: CCTechPalette, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._palette = palette
-        self.setWidgetResizable(True)
-        self.setFrameShape(QFrame.Shape.NoFrame)
+        configure_page_scroll(self)
+        self._compact_layout = False
         container = QWidget()
         container.setObjectName("dashContainer")
         container.setStyleSheet(f"QWidget#dashContainer {{ background: {palette.canvas}; }}")
         self.setWidget(container)
         self._root = QVBoxLayout(container)
-        self._root.setContentsMargins(PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN)
-        self._root.setSpacing(PAGE_SPACING)
+        self._root.setContentsMargins(PAGE_MARGIN, PAGE_MARGIN - 8, PAGE_MARGIN, PAGE_MARGIN)
+        self._root.setSpacing(PAGE_SPACING - 4)
 
         self._stats_host = QWidget()
         self._stats_grid = QGridLayout(self._stats_host)
@@ -61,6 +64,7 @@ class DashboardPage(QScrollArea):
         self._stats_grid.setContentsMargins(0, 0, 0, 0)
         for col in range(4):
             self._stats_grid.setColumnStretch(col, 1)
+        self._stat_cards: list[StatCard] = []
         self._sessions_host = QVBoxLayout()
         self._sessions_host.setSpacing(CARD_INNER_SPACING - 4)
         self._active_host = QVBoxLayout()
@@ -83,18 +87,19 @@ class DashboardPage(QScrollArea):
         p = self._palette
         hero = QFrame()
         hero.setObjectName("dashHero")
-        hero.setMinimumHeight(210)
+        hero.setMinimumHeight(160)
+        hero.setMaximumHeight(240)
         hero.setStyleSheet(hero_panel_stylesheet(p))
         layout = QHBoxLayout(hero)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(28)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(20)
 
         text = QVBoxLayout()
-        text.setSpacing(14)
+        text.setSpacing(10)
 
         badge = QLabel("CCTech · Enterprise AI Platform")
         badge.setObjectName("heroBadge")
-        badge.setMaximumWidth(300)
+        badge.setWordWrap(True)
 
         headline = QLabel("Smart Installer AI")
         headline.setObjectName("heroTitle")
@@ -105,10 +110,9 @@ class DashboardPage(QScrollArea):
         )
         sub.setObjectName("heroSubtitle")
         sub.setWordWrap(True)
-        sub.setMaximumWidth(580)
 
         actions = QHBoxLayout()
-        actions.setSpacing(12)
+        actions.setSpacing(10)
         monitor_btn = hero_primary_button("View live monitoring", p, parent=hero)
         monitor_btn.clicked.connect(self.monitoring_requested.emit)
         center_btn = hero_outline_button("Installation Center", p, parent=hero)
@@ -120,15 +124,15 @@ class DashboardPage(QScrollArea):
         text.addWidget(badge)
         text.addWidget(headline)
         text.addWidget(sub)
-        text.addSpacing(4)
+        text.addSpacing(2)
         text.addLayout(actions)
-        layout.addLayout(text, stretch=2)
+        layout.addLayout(text, stretch=3)
 
         logo = QLabel()
         logo.setObjectName("heroLogo")
-        logo.setPixmap(load_brand_logo_pixmap(72))
+        logo.setPixmap(load_brand_logo_pixmap(64))
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo.setFixedSize(80, 80)
+        logo.setFixedSize(72, 72)
         logo.setScaledContents(False)
         layout.addWidget(logo, alignment=Qt.AlignmentFlag.AlignVCenter)
         return hero
@@ -165,9 +169,9 @@ class DashboardPage(QScrollArea):
         p = self._palette
         row = QWidget()
         row.setStyleSheet("background: transparent;")
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(GRID_GAP)
+        self._info_grid = QGridLayout(row)
+        self._info_grid.setContentsMargins(0, 0, 0, 0)
+        self._info_grid.setSpacing(GRID_GAP)
 
         active_card, active_layout = section_card(p)
         active_heading = QLabel("Active installations")
@@ -199,11 +203,45 @@ class DashboardPage(QScrollArea):
         ai_layout.addLayout(self._ai_recommendations_host)
         ai_layout.addStretch(1)
 
-        layout.addWidget(active_card, stretch=1)
-        layout.addWidget(sessions_card, stretch=1)
-        layout.addWidget(status_card, stretch=1)
-        layout.addWidget(ai_card, stretch=1)
+        self._info_cards = (active_card, sessions_card, status_card, ai_card)
+        for card in self._info_cards:
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._place_info_cards(compact=False)
         return row
+
+    def _place_info_cards(self, *, compact: bool) -> None:
+        for card in self._info_cards:
+            self._info_grid.removeWidget(card)
+        cards = self._info_cards
+        if compact:
+            for idx, card in enumerate(cards):
+                self._info_grid.addWidget(card, idx // 2, idx % 2)
+            for col in range(2):
+                self._info_grid.setColumnStretch(col, 1)
+        else:
+            for idx, card in enumerate(cards):
+                self._info_grid.addWidget(card, 0, idx)
+            for col in range(4):
+                self._info_grid.setColumnStretch(col, 1)
+
+    def reflow_for_width(self, width: int) -> None:
+        compact = width < 980
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        self._place_info_cards(compact=compact)
+        self._reflow_stats(compact=compact)
+
+    def _reflow_stats(self, *, compact: bool) -> None:
+        if not self._stat_cards:
+            return
+        while self._stats_grid.count():
+            item = self._stats_grid.takeAt(0)
+            if item.widget():
+                self._stats_grid.removeWidget(item.widget())
+        cols = 2 if compact else 4
+        for idx, card in enumerate(self._stat_cards):
+            self._stats_grid.addWidget(card, idx // cols, idx % cols)
 
     def _build_benefits(self) -> QFrame:
         p = self._palette
@@ -255,6 +293,7 @@ class DashboardPage(QScrollArea):
             item = self._stats_grid.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        self._stat_cards.clear()
 
         rate = round(100 * stats.successful / stats.total_sessions) if stats.total_sessions else 0
         cards = [
@@ -283,8 +322,11 @@ class DashboardPage(QScrollArea):
                 palette=p,
             ),
         ]
+        self._stat_cards = cards
+        cols = 2 if self._compact_layout else 4
         for idx, card in enumerate(cards):
-            self._stats_grid.addWidget(card, 0, idx)
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            self._stats_grid.addWidget(card, idx // cols, idx % cols)
 
         self._clear_layout(self._active_host)
         if not stats.active_installations:

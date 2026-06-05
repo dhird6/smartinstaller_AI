@@ -1,0 +1,21 @@
+{
+  "scenarioId": "localization_unicode_path",
+  "name": "Unicode Path Failure",
+  "description": "Simulates non-ASCII/Unicode installation path failure.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "loc-001",
+      "category": "localization",
+      "subType": "unicode_path_issue",
+      "severity": "medium",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["unicode", "path", "localization"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

@@ -1,0 +1,21 @@
+{
+  "scenarioId": "migration_profile_corruption",
+  "name": "Profile Migration Corruption",
+  "description": "Simulates corrupted user profile migration during TestApp upgrade.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "mig-001",
+      "category": "migration",
+      "subType": "profile_migration_corruption",
+      "severity": "high",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["migration", "profile", "corruption"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

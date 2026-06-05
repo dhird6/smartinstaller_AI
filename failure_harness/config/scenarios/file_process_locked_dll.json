@@ -1,0 +1,21 @@
+{
+  "scenarioId": "file_process_locked_dll",
+  "name": "Locked DLL During Install",
+  "description": "Simulates file locking conflict — validates file/process locking failure detection.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "lock-001",
+      "category": "file_process_locking",
+      "subType": "locked_dll",
+      "severity": "high",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["locked", "dll", "process"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

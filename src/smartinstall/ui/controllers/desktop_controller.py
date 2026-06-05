@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -146,6 +147,72 @@ class DesktopController(QObject):
             self._formatter.status_update(f"Starting monitored installation for `{installer_name}`...")
         )
         self._start_install_worker(installer_name=installer_name)
+
+    def run_bundled_test_install(self, scenario_id: str) -> None:
+        """Launch bundled TestAppSetup.exe with a failure-injection scenario."""
+        if self._busy:
+            self._emit(self._formatter.error_message("Please wait until the current workflow finishes."))
+            return
+
+        from smartinstall.agent.infrastructure.bundled_assets import (
+            bundled_test_app_path,
+            ensure_bundled_assets,
+        )
+
+        ensure_bundled_assets()
+        test_app = bundled_test_app_path()
+        if test_app is None or not test_app.is_file():
+            dev_candidate = self._config.installers_dir / "TestAppSetup.exe"
+            if dev_candidate.is_file():
+                test_app = dev_candidate
+            else:
+                self._emit(
+                    self._formatter.error_message(
+                        "TestAppSetup.exe not found. Rebuild with scripts\\build_desktop.ps1 "
+                        "or run failure_harness\\scripts\\build_test_installer.ps1."
+                    )
+                )
+                return
+
+        try:
+            from failure_harness.scenario_manager import ScenarioManager
+
+            manager = ScenarioManager.from_harness_config()
+            scenario = manager.load_scenario(scenario_id)
+        except Exception as exc:  # noqa: BLE001
+            self._emit(self._formatter.error_message(f"Could not load scenario '{scenario_id}': {exc}"))
+            return
+
+        runtime_dir = self._config.output_root / "runtime_scenarios"
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        scenario_file = runtime_dir / f"{scenario.scenario_id}_ui.json"
+        scenario_file.write_text(scenario.model_dump_json(by_alias=True, indent=2), encoding="utf-8")
+
+        args = subprocess.list2cmdline(["--scenario", str(scenario_file.resolve())])
+        self._set_busy(True)
+        self._emit(
+            self._formatter.status_update(
+                f"Starting bundled test install — scenario `{scenario.scenario_id}`..."
+            )
+        )
+        stop_qthread(self._install_worker, wait_ms=5_000)
+        stop_qthread(self._slm_worker, wait_ms=5_000)
+        self._install_worker = InstallWorkflowWorker(
+            self._container,
+            self._event_bridge,
+            installer_name=test_app.name,
+            product_name="TestApp Failure Injection",
+            additional_args=args,
+            timeout_seconds=scenario.install_timeout_seconds,
+            parent=self,
+        )
+        wire_worker_lifetime(
+            self._install_worker,
+            on_finished=lambda: setattr(self, "_install_worker", None),
+        )
+        self._install_worker.succeeded.connect(self._on_install_succeeded)
+        self._install_worker.failed.connect(self._on_install_failed)
+        self._install_worker.start()
 
     def start_install_from_path(self, installer_path: Path) -> None:
         self._set_busy(True)

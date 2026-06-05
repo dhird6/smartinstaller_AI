@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFrame, QLabel, QVBoxLayout, QWidget
 
 from smartinstall.ui.components.enterprise_button import hero_outline_button, hero_primary_button
 from smartinstall.ui.components.ui_card import PAGE_MARGIN, PAGE_SPACING, section_card
@@ -16,6 +16,7 @@ class InstallationCenterPage(QWidget):
     browse_requested = Signal()
     upload_requested = Signal()
     manual_monitor_requested = Signal()
+    test_install_requested = Signal(str)
 
     def __init__(self, palette: CCTechPalette, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -77,4 +78,36 @@ class InstallationCenterPage(QWidget):
         auto_body.setStyleSheet(body_stylesheet(p))
         auto_layout.addWidget(auto_body)
         root.addWidget(auto_card)
+
+        test_card, test_layout = section_card(p)
+        test_heading = QLabel("Bundled test installer (failure injection)")
+        test_heading.setStyleSheet(heading_stylesheet(p, size_pt=12))
+        test_layout.addWidget(test_heading)
+        test_body = QLabel(
+            "Run the bundled TestAppSetup.exe with a failure scenario. Smart Installer "
+            "monitors the session so you can validate detection, RAG troubleshooting, and recovery."
+        )
+        test_body.setWordWrap(True)
+        test_body.setStyleSheet(body_stylesheet(p))
+        test_layout.addWidget(test_body)
+
+        self._scenario_combo = QComboBox(parent=test_card)
+        self._scenario_combo.setMinimumWidth(200)
+        test_layout.addWidget(self._scenario_combo)
+
+        test_btn = hero_primary_button("Run test install scenario", p, parent=test_card)
+        test_btn.clicked.connect(self._emit_test_install)
+        test_layout.addWidget(test_btn)
+        root.addWidget(test_card)
         root.addStretch(1)
+
+    def set_test_scenarios(self, scenarios: list[tuple[str, str]]) -> None:
+        """Populate scenario picker with (id, label) pairs."""
+        self._scenario_combo.clear()
+        for scenario_id, label in scenarios:
+            self._scenario_combo.addItem(label, scenario_id)
+
+    def _emit_test_install(self) -> None:
+        scenario_id = self._scenario_combo.currentData()
+        if scenario_id:
+            self.test_install_requested.emit(str(scenario_id))

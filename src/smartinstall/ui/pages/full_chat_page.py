@@ -83,7 +83,7 @@ class FullChatPage(QWidget):
 
         self._chat_frame = QFrame()
         apply_card_style(self._chat_frame, p, object_name="fullChatFrame")
-        self._chat_frame.setMinimumHeight(420)
+        self._chat_frame.setMinimumHeight(240)
         chat_outer = QVBoxLayout(self._chat_frame)
         chat_outer.setContentsMargins(0, 0, 0, 0)
         chat_outer.setSpacing(0)

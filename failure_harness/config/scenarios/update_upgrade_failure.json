@@ -1,0 +1,21 @@
+{
+  "scenarioId": "update_upgrade_failure",
+  "name": "In-Place Upgrade Failure",
+  "description": "Simulates failed in-place upgrade with rollback initiation.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "upd-001",
+      "category": "update",
+      "subType": "upgrade_failure",
+      "severity": "high",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["upgrade", "failed", "rollback"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

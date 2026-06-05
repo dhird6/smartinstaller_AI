@@ -1,0 +1,21 @@
+{
+  "scenarioId": "rare_edge_certificate_expiration",
+  "name": "Code Signing Certificate Expired",
+  "description": "Simulates expired code signing certificate during package verification.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "edge-001",
+      "category": "rare_edge_case",
+      "subType": "certificate_expiration",
+      "severity": "critical",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["certificate", "expired", "signature"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

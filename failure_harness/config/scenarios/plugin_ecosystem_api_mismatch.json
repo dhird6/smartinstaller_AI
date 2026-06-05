@@ -1,0 +1,21 @@
+{
+  "scenarioId": "plugin_ecosystem_api_mismatch",
+  "name": "Plugin API Mismatch",
+  "description": "Simulates plugin API version mismatch during TestApp plugin load.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "plug-001",
+      "category": "plugin_ecosystem",
+      "subType": "plugin_api_mismatch",
+      "severity": "high",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["plugin", "api", "mismatch"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

@@ -19,6 +19,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list-scenarios", action="store_true", help="List available scenarios")
     parser.add_argument("--run-all", action="store_true", help="Run all scenarios sequentially")
     parser.add_argument("--phase1-only", action="store_true", help="Run Phase 1 health checks only")
+    parser.add_argument(
+        "--generate-catalog",
+        action="store_true",
+        help="Regenerate scenario_catalog.json from scenario files",
+    )
     args = parser.parse_args(argv)
 
     config = load_harness_config(args.config)
@@ -30,6 +35,14 @@ def main(argv: list[str] | None = None) -> int:
             sc = manager.load_scenario(sid)
             desc = sc.description[:80] if sc.description else ""
             print(f"  {sid}: {sc.name} — {desc}")
+        return 0
+
+    if args.generate_catalog:
+        from failure_harness.scenario_builder import write_scenario_catalog
+
+        manager = ScenarioManager.from_harness_config(args.config)
+        catalog_path = write_scenario_catalog(manager.scenarios_dir)
+        print(f"Scenario catalog written to {catalog_path}")
         return 0
 
     if args.phase1_only:

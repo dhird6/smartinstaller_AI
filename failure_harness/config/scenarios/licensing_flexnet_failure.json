@@ -1,0 +1,23 @@
+{
+  "scenarioId": "licensing_flexnet_failure",
+  "name": "FlexNet License Server Unreachable",
+  "description": "Simulates FlexNet licensing error -15,570 where the license server cannot be reached during activation.",
+  "failureMode": "single",
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.3,
+  "failures": [
+    {
+      "id": "lic_flexnet_001",
+      "category": "licensing",
+      "subType": "flexnet_failure",
+      "severity": "high",
+      "delaySeconds": 4.0,
+      "exitCode": 1603,
+      "recoveryPolicy": "retry",
+      "retryCount": 2,
+      "expectedRagKeywords": ["flexnet", "license", "server", "-15570", "lmgrd"]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "scenarioId": "licensing_expired",
+  "name": "Expired License Token",
+  "description": "Simulates installation failing because the product license has expired and cannot be validated.",
+  "failureMode": "single",
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.3,
+  "failures": [
+    {
+      "id": "lic_expired_001",
+      "category": "licensing",
+      "subType": "expired_license",
+      "severity": "high",
+      "delaySeconds": 3.0,
+      "exitCode": 1603,
+      "recoveryPolicy": "abort",
+      "retryCount": 0,
+      "expectedRagKeywords": ["license", "expired", "activation", "renewal", "token"]
+    }
+  ]
+}

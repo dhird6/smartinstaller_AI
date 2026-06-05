@@ -14,14 +14,14 @@ class TopHeader(QFrame):
         super().__init__(parent)
         self._palette = palette
         self.setObjectName("topHeader")
-        self.setFixedHeight(56)
+        self.setFixedHeight(52)
         self._page_title = QLabel("Home Dashboard")
         self._build_ui()
 
     def _build_ui(self) -> None:
         p = self._palette
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(24, 0, 24, 0)
+        layout.setContentsMargins(20, 0, 20, 0)
 
         title_col = QVBoxLayout()
         title_col.setSpacing(2)

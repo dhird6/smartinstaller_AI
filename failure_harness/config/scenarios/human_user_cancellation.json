@@ -1,0 +1,21 @@
+{
+  "scenarioId": "human_user_cancellation",
+  "name": "User Cancellation",
+  "description": "Simulates user-initiated installation cancellation (exit 1602).",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "user-001",
+      "category": "human_user",
+      "subType": "user_cancellation",
+      "severity": "low",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["cancelled", "user", "abort"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

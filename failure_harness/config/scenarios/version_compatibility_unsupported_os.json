@@ -1,0 +1,21 @@
+{
+  "scenarioId": "version_compatibility_unsupported_os",
+  "name": "Unsupported Operating System",
+  "description": "Simulates OS version check failure — validates version compatibility detection and RAG guidance.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "ver-001",
+      "category": "version_compatibility",
+      "subType": "unsupported_os",
+      "severity": "high",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["unsupported", "operating system", "version"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

@@ -10,11 +10,21 @@ src_root = project_root / "src"
 
 block_cipher = None
 
+_test_app = project_root / "installers" / "TestAppSetup.exe"
+_harness_scenarios = project_root / "failure_harness" / "config" / "scenarios"
+_harness_config = project_root / "failure_harness" / "config" / "harness.config.json"
+
 added_datas = [
     (str(project_root / "config" / "smartinstall.config.json"), "config"),
     (str(project_root / "rag_docs"), "rag_docs"),
     (str(src_root / "smartinstall" / "ui" / "resources"), "smartinstall/ui/resources"),
 ]
+if _test_app.is_file():
+    added_datas.append((str(_test_app), "installers"))
+if _harness_scenarios.is_dir():
+    added_datas.append((str(_harness_scenarios), "failure_harness/config/scenarios"))
+if _harness_config.is_file():
+    added_datas.append((str(_harness_config), "failure_harness/config"))
 
 _assets_images = project_root / "assets" / "images"
 if _assets_images.is_dir():
@@ -46,8 +56,13 @@ hiddenimports = [
     "smartinstall",
     "smartinstall.ui",
     "smartinstall.ui.main",
+    "smartinstall.ui.layout.responsive",
     "smartinstall.agent",
+    "smartinstall.agent.infrastructure.bundled_assets",
     "smartinstall.agent.slm.rag_engine",
+    "failure_harness",
+    "failure_harness.orchestrator",
+    "failure_harness.test_installer",
     "smartinstall.agent.collectors.registry_collector",
     "smartinstall.agent.collectors.filesystem_collector",
     "win32evtlog",

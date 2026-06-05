@@ -1,0 +1,21 @@
+{
+  "scenarioId": "enterprise_sccm_conflict",
+  "name": "SCCM Deployment Conflict",
+  "description": "Simulates enterprise SCCM package conflict during TestApp setup.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "ent-001",
+      "category": "enterprise_deployment",
+      "subType": "sccm_conflict",
+      "severity": "high",
+      "delaySeconds": 0.3,
+      "expectedRagKeywords": ["sccm", "deployment", "conflict"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

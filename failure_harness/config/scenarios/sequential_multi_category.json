@@ -1,0 +1,39 @@
+{
+  "scenarioId": "sequential_multi_category",
+  "name": "Sequential Multi-Category Failures",
+  "description": "Injects disk, dependency, and registry failures sequentially with delays.",
+  "failureMode": "sequential",
+  "failures": [
+    {
+      "id": "seq-001",
+      "category": "disk_storage",
+      "subType": "insufficient_disk_space",
+      "severity": "high",
+      "delaySeconds": 0.2,
+      "expectedRagKeywords": ["disk", "space"],
+      "recoveryPolicy": "skip"
+    },
+    {
+      "id": "seq-002",
+      "category": "dependency",
+      "subType": "missing_dotnet",
+      "severity": "high",
+      "delaySeconds": 0.4,
+      "expectedRagKeywords": ["dotnet", "runtime"],
+      "recoveryPolicy": "skip"
+    },
+    {
+      "id": "seq-003",
+      "category": "registry",
+      "subType": "registry_corruption",
+      "severity": "critical",
+      "delaySeconds": 0.6,
+      "expectedRagKeywords": ["registry", "corruption"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 180,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

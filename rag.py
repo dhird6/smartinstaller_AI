@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+# Force UTF-8 output so LLM responses with unicode (arrows, bullets) don't crash
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from smartinstall.agent.slm.rag_engine import (
     RagDiagnosisConfig,

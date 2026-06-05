@@ -124,15 +124,34 @@ def default_rag_docs_path() -> Path:
 
 
 def _load_documents(docs_path: Path) -> list[Document]:
-    if not docs_path.is_dir():
+    """Load markdown docs from docs_path and also from sibling 'rag/' folder if present."""
+    root = get_project_root()
+    search_dirs: list[Path] = []
+
+    # Always include the explicitly configured path if it exists
+    if docs_path.is_dir():
+        search_dirs.append(docs_path.resolve())
+
+    # Also load from 'rag/' (generic + Autodesk KB) if it's a different folder
+    rag_dir = (root / "rag").resolve()
+    if rag_dir.is_dir() and rag_dir not in search_dirs:
+        search_dirs.append(rag_dir)
+
+    if not search_dirs:
         raise FileNotFoundError(f"RAG docs directory not found: {docs_path}")
 
     documents: list[Document] = []
-    for md_file in sorted(docs_path.glob("*.md")):
-        text = md_file.read_text(encoding="utf-8")
-        documents.append(Document(page_content=text, metadata={"source": md_file.name}))
+    seen: set[str] = set()
+    for folder in search_dirs:
+        for md_file in sorted(folder.glob("*.md")):
+            if md_file.name in seen:
+                continue
+            seen.add(md_file.name)
+            text = md_file.read_text(encoding="utf-8")
+            documents.append(Document(page_content=text, metadata={"source": md_file.name}))
+
     if not documents:
-        raise RuntimeError(f"No markdown documents found in {docs_path}")
+        raise RuntimeError(f"No markdown documents found in {search_dirs}")
     return documents
 
 

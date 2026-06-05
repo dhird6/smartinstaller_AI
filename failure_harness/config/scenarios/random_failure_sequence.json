@@ -1,0 +1,42 @@
+{
+  "scenarioId": "random_failure_sequence",
+  "name": "Randomized Failure Sequence",
+  "description": "Deterministic random order of licensing, network, and installer engine failures.",
+  "failureMode": "deterministic",
+  "randomSeed": 12345,
+  "failures": [
+    {
+      "id": "rand-lic",
+      "category": "licensing",
+      "subType": "flexnet_failure",
+      "severity": "high",
+      "delaySeconds": 0.2,
+      "expectedRagKeywords": ["FlexNet", "license"],
+      "recoveryPolicy": "auto",
+      "retryCount": 0
+    },
+    {
+      "id": "rand-net",
+      "category": "cloud_api",
+      "subType": "api_timeout",
+      "severity": "medium",
+      "delaySeconds": 0.2,
+      "expectedRagKeywords": ["API", "timeout"],
+      "recoveryPolicy": "retry",
+      "retryCount": 0
+    },
+    {
+      "id": "rand-msi",
+      "category": "installer_engine",
+      "subType": "msi_rollback",
+      "severity": "critical",
+      "delaySeconds": 0.2,
+      "expectedRagKeywords": ["MSI", "rollback", "1603"],
+      "recoveryPolicy": "abort"
+    }
+  ],
+  "installTimeoutSeconds": 240,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.15
+}

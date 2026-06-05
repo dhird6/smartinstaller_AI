@@ -1,0 +1,23 @@
+{
+  "scenarioId": "recovery_retry_success",
+  "name": "Recovery Retry Success",
+  "description": "Failure with configured retry recovery policy — installer should recover.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "retry-001",
+      "category": "human_user",
+      "subType": "network_disconnect",
+      "severity": "medium",
+      "delaySeconds": 0.3,
+      "exitCode": 1603,
+      "expectedRagKeywords": ["network", "disconnect"],
+      "recoveryPolicy": "retry",
+      "retryCount": 1
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": false,
+  "expectRagResponse": false,
+  "minRagRelevanceScore": 0.2
+}

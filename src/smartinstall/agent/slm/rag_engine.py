@@ -15,7 +15,19 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import OllamaEmbeddings, OllamaLLM
 
 from smartinstall.agent.infrastructure.project_paths import get_project_root
+from smartinstall.agent.slm.diagnosis_policy import input_targets_smartinstall_ai_stack
 from smartinstall.core.models.unified_report import UnifiedInstallationReport
+
+_INSTALLER_RAG_DOCS = frozenset(
+    {
+        "mingw_installation.md",
+        "windows_installer_common.md",
+        "testapp_disk_storage.md",
+        "testapp_download_failures.md",
+        "testapp_permissions.md",
+        "testapp_msi_engine.md",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,12 +76,16 @@ def load_report(report_path: Path) -> UnifiedInstallationReport:
 def build_input_from_report(report: UnifiedInstallationReport) -> str:
     """Convert a unified report into compact SLM prompt input."""
     status = report.status
+    installer_name = status.installer.installer_name
     lines: list[str] = [
+        "TASK: Diagnose the Windows software installation session below.",
+        f"Monitored product (focus all advice on this installer): {installer_name}",
         f"Application: {status.application}",
-        f"Installer: {status.installer.installer_name}",
+        f"Installer path: {status.installer.installer_path}",
         f"Outcome: {status.installation_outcome}",
         f"Completed: {status.installation_completed}",
         f"Workflow: {status.workflow_status}",
+        "Do NOT recommend Ollama, phi3, or Smart Installer AI setup unless explicitly mentioned in the evidence.",
     ]
     if status.failure_reason:
         lines.append(f"Failure reason: {status.failure_reason}")
@@ -130,9 +146,28 @@ def _load_documents(docs_path: Path) -> list[Document]:
     documents: list[Document] = []
     for md_file in sorted(docs_path.glob("*.md")):
         text = md_file.read_text(encoding="utf-8")
-        documents.append(Document(page_content=text, metadata={"source": md_file.name}))
+        doc_category = "installer" if md_file.name in _INSTALLER_RAG_DOCS else "platform"
+        documents.append(
+            Document(
+                page_content=text,
+                metadata={"source": md_file.name, "doc_category": doc_category},
+            )
+        )
     if not documents:
         raise RuntimeError(f"No markdown documents found in {docs_path}")
+    return documents
+
+
+def _documents_for_retrieval(
+    documents: list[Document],
+    input_text: str,
+) -> list[Document]:
+    """Exclude Smart Installer / Ollama platform docs unless evidence is about that stack."""
+    if input_targets_smartinstall_ai_stack(input_text):
+        return documents
+    installer_docs = [d for d in documents if d.metadata.get("doc_category") == "installer"]
+    if installer_docs:
+        return installer_docs
     return documents
 
 
@@ -141,15 +176,20 @@ def run_rag_diagnosis(
     config: RagDiagnosisConfig,
 ) -> RagDiagnosisResult:
     """Run retrieval-augmented diagnosis against the local knowledge base."""
-    documents = _load_documents(config.docs_path.resolve())
+    all_documents = _load_documents(config.docs_path.resolve())
+    documents = _documents_for_retrieval(all_documents, input_text)
     embeddings = OllamaEmbeddings(model=config.embedding_model)
     vector_store = Chroma.from_documents(documents=documents, embedding=embeddings)
-    retriever = vector_store.as_retriever(search_kwargs={"k": config.top_k})
+    retriever = vector_store.as_retriever(search_kwargs={"k": max(config.top_k, 3)})
 
     llm = OllamaLLM(model=config.llm_model, temperature=config.temperature)
     system_prompt = (
-        "You are an automated Windows installer troubleshooting assistant.\n"
-        "Use ONLY the provided documentation context.\n"
+        "You are an automated Windows SOFTWARE INSTALLER troubleshooting assistant.\n"
+        "The user evidence describes a third-party installer (e.g. MinGW, VS Code, MSI package).\n"
+        "Use the documentation context only when it applies to THAT product and the log evidence.\n"
+        "Never suggest installing Ollama, pulling phi3, or fixing Smart Installer AI unless the "
+        "evidence explicitly mentions those tools.\n"
+        "If context documents are unrelated, answer from the installation evidence only.\n"
         "Respond with these sections:\n"
         "1) Error Summary\n"
         "2) Root Cause\n"

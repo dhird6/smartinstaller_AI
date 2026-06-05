@@ -189,7 +189,7 @@ class MonitoringPage(QScrollArea):
         pid: int = 0,
         mode: str = "manual",
     ) -> None:
-        self._assistance.reset_for_new_install()
+        self._assistance.reset_for_new_install(installer_name=installer_name)
         self.set_installation_status("Detected")
         self._live_logs.clear()
         self._live_logs.append_line(f"Smart Installer detected: {installer_name}")

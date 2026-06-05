@@ -1,0 +1,33 @@
+{
+  "scenarioId": "download_corrupt_checksum",
+  "name": "Corrupt Download / Invalid Checksum",
+  "description": "Simulates CDN download corruption and checksum validation failure.",
+  "failureMode": "sequential",
+  "failures": [
+    {
+      "id": "dl-001",
+      "category": "download_acquisition",
+      "subType": "partial_download",
+      "severity": "medium",
+      "delaySeconds": 0.3,
+      "exitCode": 1619,
+      "expectedRagKeywords": ["download", "partial", "network"],
+      "recoveryPolicy": "retry",
+      "retryCount": 0
+    },
+    {
+      "id": "dl-002",
+      "category": "download_acquisition",
+      "subType": "invalid_checksum",
+      "severity": "high",
+      "delaySeconds": 0.2,
+      "exitCode": 1619,
+      "expectedRagKeywords": ["checksum", "verification", "package"],
+      "recoveryPolicy": "abort"
+    }
+  ],
+  "installTimeoutSeconds": 180,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.2
+}

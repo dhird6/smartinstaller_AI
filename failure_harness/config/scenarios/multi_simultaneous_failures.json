@@ -1,0 +1,43 @@
+{
+  "scenarioId": "multi_simultaneous_failures",
+  "name": "Multiple Simultaneous Failures",
+  "description": "Injects disk, dependency, and registry failures simultaneously.",
+  "failureMode": "simultaneous",
+  "failures": [
+    {
+      "id": "multi-disk",
+      "category": "disk_storage",
+      "subType": "insufficient_disk_space",
+      "severity": "critical",
+      "delaySeconds": 0,
+      "exitCode": 112,
+      "expectedRagKeywords": ["disk", "space"],
+      "recoveryPolicy": "none"
+    },
+    {
+      "id": "multi-vc",
+      "category": "dependency",
+      "subType": "missing_vc_runtime",
+      "severity": "high",
+      "delaySeconds": 0,
+      "exitCode": 1603,
+      "expectedRagKeywords": ["vc++", "runtime", "prerequisite"],
+      "recoveryPolicy": "none"
+    },
+    {
+      "id": "multi-reg",
+      "category": "registry",
+      "subType": "registry_permission",
+      "severity": "high",
+      "delaySeconds": 0,
+      "exitCode": 5,
+      "expectedRagKeywords": ["registry", "permission"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "randomSeed": 42,
+  "installTimeoutSeconds": 180,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.15
+}

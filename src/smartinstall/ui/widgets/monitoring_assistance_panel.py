@@ -55,18 +55,33 @@ class MonitoringAssistancePanel(QWidget):
             self._analysis_label = body
         return card
 
-    def reset_for_new_install(self) -> None:
+    def reset_for_new_install(self, *, installer_name: str = "") -> None:
         self._troubleshooting_items.clear()
-        self._ai_label.setText(_WAITING_AI)
+        waiting = (
+            f"Waiting for installation events for {installer_name}…"
+            if installer_name
+            else _WAITING_AI
+        )
+        self._ai_label.setText(waiting)
         self._trouble_label.setText(_WAITING_TROUBLESHOOT)
         self._analysis_label.setText(_WAITING_ANALYSIS)
 
-    def set_slm_running(self) -> None:
+    def set_install_success(self, installer_name: str) -> None:
+        """Successful install with no actionable errors — do not mention Ollama."""
         self._ai_label.setText(
-            "Collecting logs and context…\n"
-            "Querying RAG knowledge base and local SLM for recommendations."
+            f"{installer_name} completed successfully.\n"
+            "No installer issues detected — AI troubleshooting was not required."
         )
-        self._analysis_label.setText("Running AI root-cause analysis…")
+        self._trouble_label.setText("No issues found for this installation.")
+        self._analysis_label.setText("No errors to analyze.")
+
+    def set_slm_running(self, *, installer_name: str = "") -> None:
+        product = installer_name or "the monitored installer"
+        self._ai_label.setText(
+            f"Analyzing {product} installation logs…\n"
+            "Retrieving similar incidents and generating fix steps."
+        )
+        self._analysis_label.setText(f"Running root-cause analysis for {product}…")
 
     def apply_slm(self, answer: str, *, confidence: float | None = None) -> None:
         slm = partition_slm_answer(answer)
@@ -76,8 +91,8 @@ class MonitoringAssistancePanel(QWidget):
         p = self._palette
         if not slm.full_text:
             self._ai_label.setText(
-                "No AI recommendations yet.\n"
-                "Ensure Ollama is running with phi3:mini and nomic-embed-text."
+                "No AI recommendations for this installation yet.\n"
+                "Suggestions appear when the monitored installer reports actionable errors."
             )
             return
 

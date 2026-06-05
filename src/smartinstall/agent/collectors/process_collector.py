@@ -52,7 +52,7 @@ class ProcessCollector:
 
         self._reap_exited_children()
         try:
-            tree_pids = self._collect_tree_pids(self._root_pid)
+            tree_pids = _collect_tree_pids(self._root_pid)
             for pid in tree_pids:
                 if pid not in self._handles:
                     try:
@@ -150,15 +150,16 @@ def _read_exit_code(proc: psutil.Process) -> int | None:
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         return None
 
-    def _collect_tree_pids(self, root_pid: int) -> list[int]:
-        pids = [root_pid]
-        try:
-            parent = psutil.Process(root_pid)
-            for child in parent.children(recursive=True):
-                pids.append(child.pid)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-        return pids
+
+def _collect_tree_pids(root_pid: int) -> list[int]:
+    pids = [root_pid]
+    try:
+        parent = psutil.Process(root_pid)
+        for child in parent.children(recursive=True):
+            pids.append(child.pid)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        pass
+    return pids
 
 
 def _safe_exe(proc: psutil.Process) -> str | None:

@@ -1,0 +1,16 @@
+{
+  "harnessVersion": "1.0",
+  "smartInstallerRoot": null,
+  "testAppPath": "installers/TestAppSetup.exe",
+  "scenariosDirectory": "failure_harness/config/scenarios",
+  "outputDirectory": "failure_harness/artifacts",
+  "logsDirectory": "failure_harness/logs",
+  "ragDocsDirectory": null,
+  "phase1SkipInstall": true,
+  "phase1LaunchDesktop": false,
+  "phase1StartBackgroundMonitor": false,
+  "ollamaHost": "http://127.0.0.1:11434",
+  "slmModel": "phi3:mini",
+  "embeddingModel": "nomic-embed-text",
+  "defaultScenario": "disk_insufficient_space"
+}

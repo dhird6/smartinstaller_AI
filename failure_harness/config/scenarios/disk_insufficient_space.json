@@ -1,0 +1,22 @@
+{
+  "scenarioId": "disk_insufficient_space",
+  "name": "Insufficient Disk Space",
+  "description": "Simulates disk full error during TestApp installation — validates detection and RAG disk troubleshooting guidance.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "disk-001",
+      "category": "disk_storage",
+      "subType": "insufficient_disk_space",
+      "severity": "high",
+      "delaySeconds": 0.5,
+      "exitCode": 112,
+      "expectedRagKeywords": ["disk", "space", "storage", "full"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": true,
+  "minRagRelevanceScore": 0.25
+}

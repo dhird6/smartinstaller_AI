@@ -1,0 +1,22 @@
+{
+  "scenarioId": "permissions_uac_denial",
+  "name": "UAC Denial / Missing Admin",
+  "description": "Simulates elevation failure and administrator privilege denial.",
+  "failureMode": "single",
+  "failures": [
+    {
+      "id": "perm-001",
+      "category": "permissions_security",
+      "subType": "uac_denial",
+      "severity": "high",
+      "delaySeconds": 0.4,
+      "exitCode": 1223,
+      "expectedRagKeywords": ["UAC", "elevation", "administrator", "denied"],
+      "recoveryPolicy": "none"
+    }
+  ],
+  "installTimeoutSeconds": 120,
+  "expectSmartInstallerDetection": true,
+  "expectRagResponse": false,
+  "minRagRelevanceScore": 0.2
+}

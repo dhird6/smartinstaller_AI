@@ -13,6 +13,10 @@ from smartinstall.agent.di.container import ServiceContainer
 from smartinstall.agent.monitoring.completion_notifications import build_completion_notification
 from smartinstall.agent.intake.installer_discovery import DiscoveredInstaller, InstallerDiscovery
 from smartinstall.agent.orchestration.automated_run_orchestrator import AutomatedRunResult
+from smartinstall.agent.slm.diagnosis_policy import (
+    actionable_install_errors,
+    should_run_slm_diagnosis,
+)
 from smartinstall.agent.slm.rag_engine import RagDiagnosisConfig, RagDiagnosisResult
 from smartinstall.core.enums.installation import InstallerType
 from smartinstall.core.models.requests import StartSessionRequest
@@ -202,17 +206,16 @@ class DesktopController(QObject):
         if self.on_run_completed is not None:
             self.on_run_completed(run_result)
 
-        err_message = (
-            run_result.report.errors[0].message if run_result.report.errors else ""
-        )
+        actionable = actionable_install_errors(run_result.report.errors)
+        err_message = actionable[0].message if actionable else ""
         completion = build_completion_notification(
             session_id=run_result.session.session_id,
             installer_name=run_result.discovered.file_name,
             outcome=run_result.report.status.installation_outcome,
             report_path=str(run_result.report_path),
-            has_errors=bool(run_result.report.errors),
+            has_errors=bool(actionable),
             mode="manual",
-            error_code=run_result.report.errors[0].code if run_result.report.errors else "",
+            error_code=actionable[0].code if actionable else "",
             error_message=err_message,
             suggested_fix=_suggest_fix_from_error_message(err_message) if err_message else "",
         )
@@ -274,10 +277,7 @@ class DesktopController(QObject):
 
     @staticmethod
     def _needs_slm_diagnosis(run_result: AutomatedRunResult) -> bool:
-        outcome = run_result.report.status.installation_outcome.lower()
-        if outcome in {"failed", "failure", "error"}:
-            return True
-        return bool(run_result.report.errors)
+        return should_run_slm_diagnosis(run_result.report)
 
     def _list_installers(self) -> None:
         names = [item.file_name for item in self._discovery.list_installers()]

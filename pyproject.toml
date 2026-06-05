@@ -32,6 +32,7 @@ desktop = [
 [project.scripts]
 smartinstall = "smartinstall.__main__:main"
 smartinstall-desktop = "smartinstall.ui.main:main"
+failure-harness = "failure_harness.run_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

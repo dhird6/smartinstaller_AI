@@ -14,6 +14,7 @@ from smartinstall.agent.monitoring.completion_notifications import is_completion
 from smartinstall.agent.monitoring.monitoring_state_store import MonitoringPlatformState
 from smartinstall.agent.orchestration.automated_run_orchestrator import AutomatedRunResult
 from smartinstall.agent.services.background_monitor_service import BackgroundMonitorService
+from smartinstall.agent.slm.diagnosis_policy import should_run_slm_diagnosis
 from smartinstall.agent.slm.rag_engine import RagDiagnosisResult
 from smartinstall.ui.controllers.desktop_controller import DesktopController
 from smartinstall.ui.dialogs.install_complete_dialog import InstallCompleteDialog
@@ -537,9 +538,10 @@ class MainShell(QMainWindow):
             f"{code}: {message[:200]}",
             _suggest_fix_from_message(message),
         )
+        installer = str(payload.get("installerName", ""))
         if self._controller._config.auto_run_slm and not self._live_error_slm_armed:  # noqa: SLF001
             self._live_error_slm_armed = True
-            self._monitoring.assistance_panel.set_slm_running()
+            self._monitoring.assistance_panel.set_slm_running(installer_name=installer)
 
     def _on_pending_notification(self, payload: object) -> None:
         if isinstance(payload, dict) and is_completion_notification(payload):
@@ -607,6 +609,9 @@ class MainShell(QMainWindow):
                     f"{installer_name}: see AI troubleshooting in the app.",
                 )
         else:
+            self._monitoring.assistance_panel.set_install_success(
+                str(payload.get("installerName", "Installer"))
+            )
             self._show_success_completion_popup(payload)
             self._navigate(self.PAGE_MONITORING)
             if self._tray is not None and hasattr(self._tray, "notify"):
@@ -839,10 +844,17 @@ class MainShell(QMainWindow):
             slm_sources=slm_sources,
             slm_status="running" if needs_slm and not slm_answer else ("ready" if slm_answer else "none"),
         )
-        if result.report.errors:
-            self._monitoring.assistance_panel.apply_errors_from_report(result.report.errors)
+        from smartinstall.agent.slm.diagnosis_policy import actionable_install_errors
+
+        actionable = actionable_install_errors(result.report.errors)
+        if actionable:
+            self._monitoring.assistance_panel.apply_errors_from_report(actionable)
+        elif outcome in {"success", "completed"}:
+            self._monitoring.assistance_panel.set_install_success(result.discovered.file_name)
         if needs_slm and not slm_answer:
-            self._monitoring.assistance_panel.set_slm_running()
+            self._monitoring.assistance_panel.set_slm_running(
+                installer_name=result.discovered.file_name
+            )
         elif slm_answer:
             self._monitoring.assistance_panel.apply_slm(slm_answer)
 
@@ -871,10 +883,7 @@ class MainShell(QMainWindow):
 
     @staticmethod
     def _needs_slm_for_result(result: AutomatedRunResult) -> bool:
-        outcome = result.report.status.installation_outcome.lower()
-        if outcome in {"failed", "failure", "error"}:
-            return True
-        return bool(result.report.errors)
+        return should_run_slm_diagnosis(result.report)
 
 
 def _suggest_fix_from_message(message: str) -> str:
